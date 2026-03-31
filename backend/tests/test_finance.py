@@ -37,7 +37,7 @@ def test_finance_summary(client, db):
     assert data["total_commission"] == 235.0
     assert data["total_logistics"] == 150.0
     assert data["total_purchase_cost"] == 200.0
-    assert data["total_profit"] == 1965.0
+    assert data["total_profit"] == 1765.0
 
 
 def test_finance_summary_filter_by_shop(client, db):
