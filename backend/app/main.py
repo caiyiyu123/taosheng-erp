@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import UPLOAD_DIR
 from app.database import Base, engine
 import app.models  # noqa: F401
-from app.routers import auth
+from app.routers import auth, users, shops
 
 Base.metadata.create_all(bind=engine)
 
@@ -22,6 +22,8 @@ app.add_middleware(
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(shops.router)
 
 
 @app.get("/api/health")
