@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import UPLOAD_DIR
 from app.database import Base, engine
 import app.models  # noqa: F401
-from app.routers import auth, users, shops, products, sku_mappings
+from app.routers import auth, users, shops, products, sku_mappings, orders
 
 Base.metadata.create_all(bind=engine)
 
@@ -26,6 +26,7 @@ app.include_router(users.router)
 app.include_router(shops.router)
 app.include_router(products.router)
 app.include_router(sku_mappings.router)
+app.include_router(orders.router)
 
 
 @app.get("/api/health")
