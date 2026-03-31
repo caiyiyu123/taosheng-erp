@@ -1,7 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, Float, Integer, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 
 class Order(Base):
@@ -16,8 +20,8 @@ class Order(Base):
     customer_name: Mapped[str] = mapped_column(String(200), default="")
     delivery_address: Mapped[str] = mapped_column(Text, default="")
     warehouse_name: Mapped[str] = mapped_column(String(200), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", lazy="selectin")
     status_logs: Mapped[list["OrderStatusLog"]] = relationship(back_populates="order", lazy="selectin")
 
@@ -43,6 +47,6 @@ class OrderStatusLog(Base):
     order_id: Mapped[int] = mapped_column(Integer, ForeignKey("orders.id"))
     status: Mapped[str] = mapped_column(String(50))
     wb_status: Mapped[str] = mapped_column(String(100), default="")
-    changed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     note: Mapped[str] = mapped_column(Text, default="")
     order: Mapped["Order"] = relationship(back_populates="status_logs")

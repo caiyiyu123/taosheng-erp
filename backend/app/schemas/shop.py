@@ -1,17 +1,19 @@
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel
+
+ShopType = Literal["cross_border", "local"]
 
 
 class ShopCreate(BaseModel):
     name: str
-    type: str
+    type: ShopType
     api_token: str
 
 
 class ShopUpdate(BaseModel):
     name: Optional[str] = None
-    type: Optional[str] = None
+    type: Optional[ShopType] = None
     api_token: Optional[str] = None
     is_active: Optional[bool] = None
 

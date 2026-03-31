@@ -1,5 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -28,16 +29,19 @@ def finance_summary(
     total_commission = sum(i.commission for i in items)
     total_logistics = sum(i.logistics_cost for i in items)
 
-    total_purchase_cost = 0.0
-    for item in items:
-        order = db.query(Order).filter(Order.id == item.order_id).first()
-        mapping = db.query(SkuMapping).filter(
-            SkuMapping.shop_id == order.shop_id, SkuMapping.shop_sku == item.sku
-        ).first()
-        if mapping and mapping.product_id:
-            product = db.query(Product).filter(Product.id == mapping.product_id).first()
-            if product:
-                total_purchase_cost += product.purchase_price * item.quantity
+    # Single query with JOIN to calculate purchase cost (avoids N+1)
+    purchase_query = (
+        db.query(func.sum(Product.purchase_price * OrderItem.quantity))
+        .select_from(OrderItem)
+        .join(Order, Order.id == OrderItem.order_id)
+        .join(SkuMapping, (SkuMapping.shop_id == Order.shop_id) & (SkuMapping.shop_sku == OrderItem.sku))
+        .join(Product, Product.id == SkuMapping.product_id)
+    )
+    if shop_id:
+        purchase_query = purchase_query.filter(Order.shop_id == shop_id)
+    if order_type:
+        purchase_query = purchase_query.filter(Order.order_type == order_type)
+    total_purchase_cost = purchase_query.scalar() or 0.0
 
     total_profit = total_sales - total_purchase_cost - total_commission - total_logistics
     return {

@@ -1,15 +1,17 @@
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel
+
+RoleType = Literal["admin", "operator", "viewer"]
 
 
 class UserCreate(BaseModel):
     username: str
     password: str
-    role: str = "viewer"
+    role: RoleType = "viewer"
 
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[RoleType] = None
     is_active: Optional[bool] = None
