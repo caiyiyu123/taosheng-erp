@@ -13,7 +13,7 @@
           <span v-else style="color: #ccc">无图</span>
         </template>
       </el-table-column>
-      <el-table-column prop="sku" label="SKU" />
+      <el-table-column prop="sku" label="商品SKU" />
       <el-table-column prop="name" label="名称" />
       <el-table-column prop="purchase_price" label="采购价">
         <template #default="{ row }">¥ {{ row.purchase_price }}</template>
@@ -40,7 +40,7 @@
 
   <el-dialog v-model="showDialog" :title="form.id ? '编辑商品' : '添加商品'" width="500px">
     <el-form :model="form" label-width="80px">
-      <el-form-item label="SKU"><el-input v-model="form.sku" /></el-form-item>
+      <el-form-item label="商品SKU"><el-input v-model="form.sku" /></el-form-item>
       <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
       <el-form-item label="采购价"><el-input-number v-model="form.purchase_price" :min="0" :precision="2" /></el-form-item>
       <el-form-item label="重量(g)"><el-input-number v-model="form.weight" :min="0" /></el-form-item>

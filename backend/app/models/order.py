@@ -34,6 +34,7 @@ class OrderItem(Base):
     product_name: Mapped[str] = mapped_column(String(500), default="")
     sku: Mapped[str] = mapped_column(String(200), default="")
     barcode: Mapped[str] = mapped_column(String(100), default="")
+    image_url: Mapped[str] = mapped_column(String(500), default="")
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     price: Mapped[float] = mapped_column(Float, default=0.0)
     commission: Mapped[float] = mapped_column(Float, default=0.0)

@@ -2,7 +2,7 @@
   <el-container style="height: 100vh">
     <el-aside width="200px" style="background: #16213e">
       <div style="padding: 16px; color: white; font-size: 1.2em; font-weight: bold; text-align: center; border-bottom: 1px solid #2a3a5e;">
-        WB-ERP
+        韬盛ERP
       </div>
       <el-menu
         :default-active="$route.path"
@@ -24,10 +24,14 @@
           <el-menu-item index="/orders?order_type=FBW">FBW 订单</el-menu-item>
           <el-menu-item index="/orders">全部订单</el-menu-item>
         </el-sub-menu>
-        <el-menu-item index="/products">
-          <el-icon><Goods /></el-icon>
-          <span>商品管理</span>
-        </el-menu-item>
+        <el-sub-menu index="products-sub">
+          <template #title>
+            <el-icon><Goods /></el-icon>
+            <span>商品管理</span>
+          </template>
+          <el-menu-item index="/products">商品列表</el-menu-item>
+          <el-menu-item index="/ads">推广数据</el-menu-item>
+        </el-sub-menu>
         <el-menu-item index="/finance">
           <el-icon><Money /></el-icon>
           <span>财务统计</span>

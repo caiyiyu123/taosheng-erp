@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.order import Order
+from app.models.order import Order, OrderItem
 from app.schemas.order import OrderOut, OrderListOut
 from app.utils.deps import get_current_user
 
@@ -15,6 +15,7 @@ def list_orders(
     shop_id: Optional[int] = Query(None),
     order_type: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="搜索订单号或产品SKU"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -27,6 +28,20 @@ def list_orders(
         query = query.filter(Order.order_type == order_type)
     if status:
         query = query.filter(Order.status == status)
+    if search:
+        keyword = f"%{search}%"
+        # Find order IDs matching by SKU
+        sku_order_ids = [
+            row[0] for row in
+            db.query(OrderItem.order_id).filter(OrderItem.sku.like(keyword)).all()
+        ]
+        # Search by order number or product SKU
+        if sku_order_ids:
+            query = query.filter(
+                Order.wb_order_id.like(keyword) | Order.id.in_(sku_order_ids)
+            )
+        else:
+            query = query.filter(Order.wb_order_id.like(keyword))
     total = query.count()
     orders = query.order_by(Order.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return OrderListOut(items=orders, total=total)

@@ -12,19 +12,19 @@
       </div>
       <el-row :gutter="16">
         <el-col :span="5">
-          <el-statistic title="销售额" :value="summary.total_sales" prefix="₽" />
+          <el-statistic title="销售额" :value="summary.total_sales" prefix="¥" />
         </el-col>
         <el-col :span="5">
-          <el-statistic title="采购成本" :value="summary.total_purchase_cost" prefix="₽" />
+          <el-statistic title="采购成本" :value="summary.total_purchase_cost" prefix="¥" />
         </el-col>
         <el-col :span="4">
-          <el-statistic title="佣金" :value="summary.total_commission" prefix="₽" />
+          <el-statistic title="佣金" :value="summary.total_commission" prefix="¥" />
         </el-col>
         <el-col :span="4">
-          <el-statistic title="物流费" :value="summary.total_logistics" prefix="₽" />
+          <el-statistic title="物流费" :value="summary.total_logistics" prefix="¥" />
         </el-col>
         <el-col :span="6">
-          <el-statistic title="利润" :value="summary.total_profit" prefix="₽" :value-style="{ color: summary.total_profit >= 0 ? '#67c23a' : '#f56c6c' }" />
+          <el-statistic title="利润" :value="summary.total_profit" prefix="¥" :value-style="{ color: summary.total_profit >= 0 ? '#67c23a' : '#f56c6c' }" />
         </el-col>
       </el-row>
     </el-card>

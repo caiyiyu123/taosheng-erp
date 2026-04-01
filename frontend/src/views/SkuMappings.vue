@@ -1,16 +1,16 @@
 <template>
   <div>
     <el-page-header @back="$router.back()">
-      <template #content>SKU 关联管理</template>
+      <template #content>SKU 关联管理（产品SKU → 商品SKU）</template>
     </el-page-header>
     <el-card style="margin-top: 20px">
       <el-table :data="mappings" stripe>
         <el-table-column prop="wb_product_name" label="WB商品名称" />
-        <el-table-column prop="shop_sku" label="店铺SKU" />
+        <el-table-column prop="shop_sku" label="产品SKU" />
         <el-table-column prop="wb_barcode" label="条码" />
-        <el-table-column label="关联系统SKU" width="250">
+        <el-table-column label="关联商品SKU" width="250">
           <template #default="{ row }">
-            <el-input v-model="row._input_sku" placeholder="输入系统SKU" @blur="linkSku(row)" @keyup.enter="linkSku(row)">
+            <el-input v-model="row._input_sku" placeholder="输入商品SKU" @blur="linkSku(row)" @keyup.enter="linkSku(row)">
               <template #suffix>
                 <el-icon v-if="row.product_id" style="color: #67c23a"><Check /></el-icon>
               </template>

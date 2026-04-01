@@ -9,6 +9,7 @@ class OrderItemOut(BaseModel):
     product_name: str
     sku: str
     barcode: str
+    image_url: str = ""
     quantity: int
     price: float
     commission: float

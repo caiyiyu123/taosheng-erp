@@ -2,7 +2,7 @@
   <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #1a1a2e">
     <el-card style="width: 400px">
       <template #header>
-        <h2 style="text-align: center; margin: 0">WB-ERP 登录</h2>
+        <h2 style="text-align: center; margin: 0">韬盛ERP 登录</h2>
       </template>
       <el-form :model="form" @submit.prevent="handleLogin">
         <el-form-item label="用户名">

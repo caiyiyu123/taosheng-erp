@@ -8,7 +8,7 @@
     </template>
     <el-table :data="inventory" stripe>
       <el-table-column prop="product_name" label="商品名" />
-      <el-table-column prop="sku" label="SKU" />
+      <el-table-column prop="sku" label="产品SKU" />
       <el-table-column prop="stock_fbs" label="FBS库存" />
       <el-table-column prop="stock_fbw" label="FBW库存" />
       <el-table-column label="总库存">
