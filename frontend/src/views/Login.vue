@@ -6,7 +6,7 @@
         <div class="ts-login-logo">
           <img src="/logo.png" alt="TS" class="ts-login-logo-icon" />
         </div>
-        <h1 class="ts-login-title">韬盛ERP</h1>
+        <h1 class="ts-login-title">{{ appTitle }}</h1>
         <p class="ts-login-subtitle">企业资源管理平台</p>
       </div>
       <el-form :model="form" @submit.prevent="handleLogin" class="ts-login-form">
@@ -31,6 +31,9 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
+import { APP_TITLE } from '../brand'
+
+const appTitle = APP_TITLE
 
 const form = reactive({ username: '', password: '' })
 const loading = ref(false)

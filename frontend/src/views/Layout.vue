@@ -3,7 +3,7 @@
     <el-aside width="220px" class="ts-sidebar">
       <div class="ts-logo">
         <img src="/logo.png" alt="TS" class="ts-logo-icon" />
-        <span class="ts-logo-text">韬盛ERP</span>
+        <span class="ts-logo-text">{{ appTitle }}</span>
       </div>
       <el-menu
         :default-active="$route.path"
@@ -73,6 +73,9 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { DataAnalysis, Box, Goods, TrendCharts, Money, List, Shop, User } from '@element-plus/icons-vue'
+import { APP_TITLE } from '../brand'
+
+const appTitle = APP_TITLE
 
 const authStore = useAuthStore()
 const router = useRouter()
