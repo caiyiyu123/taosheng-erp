@@ -36,6 +36,11 @@ try:
     with engine.connect() as conn:
         from sqlalchemy import inspect, text
         inspector = inspect(engine)
+        if "shops" in inspector.get_table_names():
+            shop_cols = {c["name"]: c for c in inspector.get_columns("shops")}
+            if "api_token" in shop_cols and "varchar" in str(shop_cols["api_token"]["type"]).lower():
+                conn.execute(text("ALTER TABLE shops ALTER COLUMN api_token TYPE TEXT"))
+                conn.commit()
         if "sku_mappings" in inspector.get_table_names():
             sku_cols = {c["name"] for c in inspector.get_columns("sku_mappings")}
             if "wb_nm_id" not in sku_cols:
