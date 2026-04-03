@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,15 +19,16 @@ try:
     from app.utils.security import hash_password
     db = SessionLocal()
     if db.query(User).count() == 0:
+        default_password = os.environ.get("ADMIN_DEFAULT_PASSWORD", "admin123")
         admin = User(
             username="admin",
-            password_hash=hash_password("admin123"),
+            password_hash=hash_password(default_password),
             role="admin",
             is_active=True,
         )
         db.add(admin)
         db.commit()
-        print("[Init] Default admin user created: admin / admin123")
+        print("[Init] Default admin user created: admin / ********")
     db.close()
 except Exception as e:
     print(f"[Init] Warning: {e}")
@@ -65,8 +67,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

@@ -19,18 +19,27 @@ def finance_summary(
     accessible_shops: list[int] | None = Depends(get_accessible_shop_ids),
     _=Depends(require_module("finance")),
 ):
-    query = db.query(OrderItem).join(Order)
+    # Base filter conditions
+    base_query = db.query(OrderItem).join(Order)
     if accessible_shops is not None:
-        query = query.filter(Order.shop_id.in_(accessible_shops))
+        base_query = base_query.filter(Order.shop_id.in_(accessible_shops))
     if shop_id:
-        query = query.filter(Order.shop_id == shop_id)
+        base_query = base_query.filter(Order.shop_id == shop_id)
     if order_type:
-        query = query.filter(Order.order_type == order_type)
-    items = query.all()
+        base_query = base_query.filter(Order.order_type == order_type)
 
-    total_sales = sum(i.price * i.quantity for i in items)
-    total_commission = sum(i.commission for i in items)
-    total_logistics = sum(i.logistics_cost for i in items)
+    # Use SQL aggregation instead of loading all items into memory
+    agg_result = base_query.with_entities(
+        func.sum(OrderItem.price * OrderItem.quantity).label("total_sales"),
+        func.sum(OrderItem.commission).label("total_commission"),
+        func.sum(OrderItem.logistics_cost).label("total_logistics"),
+        func.count(func.distinct(OrderItem.order_id)).label("order_count"),
+    ).one()
+
+    total_sales = agg_result.total_sales or 0.0
+    total_commission = agg_result.total_commission or 0.0
+    total_logistics = agg_result.total_logistics or 0.0
+    order_count = agg_result.order_count or 0
 
     # Single query with JOIN to calculate purchase cost (avoids N+1)
     purchase_query = (
@@ -40,6 +49,8 @@ def finance_summary(
         .join(SkuMapping, (SkuMapping.shop_id == Order.shop_id) & (SkuMapping.shop_sku == OrderItem.sku))
         .join(Product, Product.id == SkuMapping.product_id)
     )
+    if accessible_shops is not None:
+        purchase_query = purchase_query.filter(Order.shop_id.in_(accessible_shops))
     if shop_id:
         purchase_query = purchase_query.filter(Order.shop_id == shop_id)
     if order_type:
@@ -53,5 +64,5 @@ def finance_summary(
         "total_logistics": total_logistics,
         "total_purchase_cost": total_purchase_cost,
         "total_profit": total_profit,
-        "order_count": len(set(i.order_id for i in items)),
+        "order_count": order_count,
     }

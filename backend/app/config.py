@@ -21,5 +21,12 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 SYNC_INTERVAL_MINUTES = 30
 
+# Production environment safety check
+if "postgresql" in DATABASE_URL:
+    if SECRET_KEY == "wb-erp-secret-key-change-in-production":
+        print("[WARNING] Production detected but SECRET_KEY is using default value! Set WB_ERP_SECRET_KEY env var.")
+    if FERNET_KEY == "wb-erp-fernet-key-must-be-32-bytes=":
+        print("[WARNING] Production detected but FERNET_KEY is using default value! Set WB_ERP_FERNET_KEY env var.")
+
 # CORS: allowed origins from env (comma-separated) or default to localhost
 CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")

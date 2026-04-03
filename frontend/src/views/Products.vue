@@ -25,7 +25,7 @@
       <el-table-column label="操作" width="280">
         <template #default="{ row }">
           <el-button size="small" @click="openDialog(row)">编辑</el-button>
-          <el-upload :action="`/api/products/${row.id}/image`" :headers="{ Authorization: `Bearer ${token}` }" :show-file-list="false" @success="fetchProducts" style="display: inline-block; margin: 0 8px">
+          <el-upload :action="`/api/products/${row.id}/image`" :headers="uploadHeaders" :show-file-list="false" @success="fetchProducts" style="display: inline-block; margin: 0 8px">
             <el-button size="small">上传图片</el-button>
           </el-upload>
           <el-popconfirm title="确定删除?" @confirm="deleteProduct(row.id)">
@@ -56,19 +56,26 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 
 const products = ref([])
 const showDialog = ref(false)
-const token = localStorage.getItem('token')
+const uploadHeaders = computed(() => ({
+  Authorization: `Bearer ${localStorage.getItem('token')}`
+}))
 const defaultForm = { id: null, sku: '', name: '', purchase_price: 0, weight: 0, length: 0, width: 0, height: 0 }
 const form = reactive({ ...defaultForm })
 
 async function fetchProducts() {
-  const { data } = await api.get('/api/products')
-  products.value = data
+  try {
+    const { data } = await api.get('/api/products')
+    products.value = data
+  } catch (e) {
+    console.error('Fetch products error:', e)
+    ElMessage.error('数据加载失败')
+  }
 }
 
 function openDialog(row) {
@@ -81,20 +88,30 @@ function openDialog(row) {
 }
 
 async function saveProduct() {
-  if (form.id) {
-    await api.put(`/api/products/${form.id}`, form)
-  } else {
-    await api.post('/api/products', form)
+  try {
+    if (form.id) {
+      await api.put(`/api/products/${form.id}`, form)
+    } else {
+      await api.post('/api/products', form)
+    }
+    showDialog.value = false
+    fetchProducts()
+    ElMessage.success('保存成功')
+  } catch (e) {
+    console.error('Save product error:', e)
+    ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message))
   }
-  showDialog.value = false
-  fetchProducts()
-  ElMessage.success('保存成功')
 }
 
 async function deleteProduct(id) {
-  await api.delete(`/api/products/${id}`)
-  fetchProducts()
-  ElMessage.success('删除成功')
+  try {
+    await api.delete(`/api/products/${id}`)
+    fetchProducts()
+    ElMessage.success('删除成功')
+  } catch (e) {
+    console.error('Delete product error:', e)
+    ElMessage.error('删除失败: ' + (e.response?.data?.detail || e.message))
+  }
 }
 
 onMounted(fetchProducts)

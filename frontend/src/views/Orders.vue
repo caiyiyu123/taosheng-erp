@@ -87,7 +87,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -168,21 +168,34 @@ function formatTime(dt) {
   return new Date(utcDt).toLocaleString('zh-CN', { timeZone: 'Europe/Moscow' })
 }
 
+let syncPollTimer = null
+
 async function syncOrders() {
   syncing.value = true
   try {
     await api.post('/api/orders/sync')
     // Poll status until done
-    const poll = setInterval(async () => {
+    let pollCount = 0
+    syncPollTimer = setInterval(async () => {
+      pollCount++
+      if (pollCount > 60) {
+        clearInterval(syncPollTimer)
+        syncPollTimer = null
+        syncing.value = false
+        ElMessage.warning('同步超时，请稍后重试')
+        return
+      }
       try {
         const { data } = await api.get('/api/orders/sync/status')
         if (data.status === 'done') {
-          clearInterval(poll)
+          clearInterval(syncPollTimer)
+          syncPollTimer = null
           syncing.value = false
           ElMessage.success(data.detail || '订单同步完成')
           fetchOrders()
         } else if (data.status === 'error') {
-          clearInterval(poll)
+          clearInterval(syncPollTimer)
+          syncPollTimer = null
           syncing.value = false
           ElMessage.error('同步失败: ' + (data.detail || '未知错误'))
         }
@@ -195,16 +208,21 @@ async function syncOrders() {
 }
 
 async function fetchOrders() {
-  const params = { page: page.value }
-  if (filters.search) params.search = filters.search
-  if (filters.shop_id) params.shop_id = filters.shop_id
-  if (filters.order_type) params.order_type = filters.order_type
-  if (filters.status) params.status = filters.status
-  if (filters.date_from) params.date_from = filters.date_from
-  if (filters.date_to) params.date_to = filters.date_to
-  const { data } = await api.get('/api/orders', { params })
-  orders.value = data.items
-  total.value = data.total
+  try {
+    const params = { page: page.value }
+    if (filters.search) params.search = filters.search
+    if (filters.shop_id) params.shop_id = filters.shop_id
+    if (filters.order_type) params.order_type = filters.order_type
+    if (filters.status) params.status = filters.status
+    if (filters.date_from) params.date_from = filters.date_from
+    if (filters.date_to) params.date_to = filters.date_to
+    const { data } = await api.get('/api/orders', { params })
+    orders.value = data.items
+    total.value = data.total
+  } catch (e) {
+    console.error('Fetch orders error:', e)
+    ElMessage.error('数据加载失败')
+  }
 }
 
 onMounted(async () => {
@@ -213,5 +231,12 @@ onMounted(async () => {
     shops.value = data
   } catch (e) { /* ignore */ }
   fetchOrders()
+})
+
+onUnmounted(() => {
+  if (syncPollTimer) {
+    clearInterval(syncPollTimer)
+    syncPollTimer = null
+  }
 })
 </script>

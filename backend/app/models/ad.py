@@ -28,9 +28,9 @@ class AdDailyStat(Base):
         UniqueConstraint("campaign_id", "nm_id", "date", name="uq_campaign_nm_date"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
-    campaign_id: Mapped[int] = mapped_column(Integer, ForeignKey("ad_campaigns.id"))
+    campaign_id: Mapped[int] = mapped_column(Integer, ForeignKey("ad_campaigns.id"), index=True)
     nm_id: Mapped[int] = mapped_column(Integer, default=0)
-    date: Mapped[datetime] = mapped_column(Date)
+    date: Mapped[datetime] = mapped_column(Date, index=True)
     views: Mapped[int] = mapped_column(Integer, default=0)
     clicks: Mapped[int] = mapped_column(Integer, default=0)
     ctr: Mapped[float] = mapped_column(Float, default=0.0)

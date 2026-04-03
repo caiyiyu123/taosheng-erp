@@ -1,5 +1,6 @@
 import httpx
 import time
+import threading
 from typing import Optional
 from datetime import datetime
 
@@ -11,16 +12,18 @@ ADVERT_API = "https://advert-api.wildberries.ru"
 # Rate limit: min 200ms between requests
 _last_request_time = 0.0
 _MIN_INTERVAL = 0.2
+_throttle_lock = threading.Lock()
 
 
 def _throttle():
     """Ensure minimum interval between API requests."""
     global _last_request_time
-    now = time.time()
-    elapsed = now - _last_request_time
-    if elapsed < _MIN_INTERVAL:
-        time.sleep(_MIN_INTERVAL - elapsed)
-    _last_request_time = time.time()
+    with _throttle_lock:
+        now = time.time()
+        elapsed = now - _last_request_time
+        if elapsed < _MIN_INTERVAL:
+            time.sleep(_MIN_INTERVAL - elapsed)
+        _last_request_time = time.time()
 
 
 def _headers(api_token: str) -> dict:

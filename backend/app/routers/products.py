@@ -58,12 +58,28 @@ def delete_product(product_id: int, db: Session = Depends(get_db), _=Depends(req
     return {"detail": "Product deleted"}
 
 
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
+
+
 @router.post("/{product_id}/image", response_model=ProductOut)
 def upload_product_image(product_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_role("admin", "operator"))):
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    ext = file.filename.split(".")[-1] if file.filename else "jpg"
+
+    # Validate file extension
+    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else ""
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type not allowed. Allowed: {', '.join(ALLOWED_IMAGE_EXTENSIONS)}")
+
+    # Validate file size
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
+
     filename = f"{uuid.uuid4().hex}.{ext}"
     filepath = UPLOAD_DIR / filename
     with open(filepath, "wb") as f:

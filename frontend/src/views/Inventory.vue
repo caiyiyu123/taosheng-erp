@@ -27,15 +27,21 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import api from '../api'
 
 const inventory = ref([])
 const showLowOnly = ref(false)
 
 async function fetchInventory() {
-  const url = showLowOnly.value ? '/api/inventory/low-stock' : '/api/inventory'
-  const { data } = await api.get(url)
-  inventory.value = data
+  try {
+    const url = showLowOnly.value ? '/api/inventory/low-stock' : '/api/inventory'
+    const { data } = await api.get(url)
+    inventory.value = data
+  } catch (e) {
+    console.error('Fetch inventory error:', e)
+    ElMessage.error('数据加载失败')
+  }
 }
 
 onMounted(fetchInventory)

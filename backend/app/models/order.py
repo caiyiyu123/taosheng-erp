@@ -12,16 +12,16 @@ class Order(Base):
     __tablename__ = "orders"
     id: Mapped[int] = mapped_column(primary_key=True)
     wb_order_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    shop_id: Mapped[int] = mapped_column(Integer, ForeignKey("shops.id"))
+    shop_id: Mapped[int] = mapped_column(Integer, ForeignKey("shops.id"), index=True)
     order_type: Mapped[str] = mapped_column(String(10))
-    status: Mapped[str] = mapped_column(String(50), default="pending")
+    status: Mapped[str] = mapped_column(String(50), default="pending", index=True)
     total_price: Mapped[float] = mapped_column(Float, default=0.0)
     price_rub: Mapped[float] = mapped_column(Float, default=0.0)
     currency: Mapped[str] = mapped_column(String(10), default="RUB")
     customer_name: Mapped[str] = mapped_column(String(200), default="")
     delivery_address: Mapped[str] = mapped_column(Text, default="")
     warehouse_name: Mapped[str] = mapped_column(String(200), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", lazy="selectin")
     status_logs: Mapped[list["OrderStatusLog"]] = relationship(back_populates="order", lazy="selectin")
@@ -30,7 +30,7 @@ class Order(Base):
 class OrderItem(Base):
     __tablename__ = "order_items"
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_id: Mapped[int] = mapped_column(Integer, ForeignKey("orders.id"))
+    order_id: Mapped[int] = mapped_column(Integer, ForeignKey("orders.id"), index=True)
     wb_product_id: Mapped[str] = mapped_column(String(100), default="")
     product_name: Mapped[str] = mapped_column(String(500), default="")
     sku: Mapped[str] = mapped_column(String(200), default="")

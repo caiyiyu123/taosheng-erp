@@ -33,6 +33,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import api from '../api'
 
 const shops = ref([])
@@ -40,15 +41,24 @@ const filters = reactive({ shop_id: '', order_type: '' })
 const summary = ref({ total_sales: 0, total_commission: 0, total_logistics: 0, total_purchase_cost: 0, total_profit: 0 })
 
 async function fetchFinance() {
-  const params = {}
-  if (filters.shop_id) params.shop_id = filters.shop_id
-  if (filters.order_type) params.order_type = filters.order_type
-  const { data } = await api.get('/api/finance/summary', { params })
-  summary.value = data
+  try {
+    const params = {}
+    if (filters.shop_id) params.shop_id = filters.shop_id
+    if (filters.order_type) params.order_type = filters.order_type
+    const { data } = await api.get('/api/finance/summary', { params })
+    summary.value = data
+  } catch (e) {
+    console.error('Fetch finance error:', e)
+    ElMessage.error('数据加载失败')
+  }
 }
 
 onMounted(async () => {
-  shops.value = (await api.get('/api/shops')).data
+  try {
+    shops.value = (await api.get('/api/shops')).data
+  } catch (e) {
+    console.error('Fetch shops error:', e)
+  }
   fetchFinance()
 })
 </script>

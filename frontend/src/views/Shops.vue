@@ -55,7 +55,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
@@ -115,27 +115,41 @@ async function deleteShop(id) {
   ElMessage.success('删除成功')
 }
 
+let syncPollTimer = null
+
 async function syncShop(id) {
   if (syncing.value === id) return
   syncing.value = id
   try {
     await api.post(`/api/shops/${id}/sync`)
     // Poll for completion
-    const poll = setInterval(async () => {
+    let pollCount = 0
+    syncPollTimer = setInterval(async () => {
+      pollCount++
+      if (pollCount > 60) {
+        clearInterval(syncPollTimer)
+        syncPollTimer = null
+        syncing.value = null
+        ElMessage.warning('同步超时，请稍后重试')
+        return
+      }
       try {
         const { data } = await api.get(`/api/shops/${id}/sync-status`)
         if (data.status === 'done') {
-          clearInterval(poll)
+          clearInterval(syncPollTimer)
+          syncPollTimer = null
           syncing.value = null
           ElMessage.success('同步完成')
           fetchShops()
         } else if (data.status === 'error') {
-          clearInterval(poll)
+          clearInterval(syncPollTimer)
+          syncPollTimer = null
           syncing.value = null
           ElMessage.error(`同步失败: ${data.detail}`)
         }
       } catch {
-        clearInterval(poll)
+        clearInterval(syncPollTimer)
+        syncPollTimer = null
         syncing.value = null
       }
     }, 3000)
@@ -146,4 +160,11 @@ async function syncShop(id) {
 }
 
 onMounted(fetchShops)
+
+onUnmounted(() => {
+  if (syncPollTimer) {
+    clearInterval(syncPollTimer)
+    syncPollTimer = null
+  }
+})
 </script>

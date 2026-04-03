@@ -177,6 +177,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { BarChart, LineChart } from 'echarts/charts'
@@ -326,30 +327,35 @@ const chartOption = computed(() => {
 })
 
 async function fetchAll() {
-  const params = { date_from: currentFrom, date_to: currentTo }
-  if (shopId.value) params.shop_id = shopId.value
-  const campParams = { ...params }
-  if (campaignStatus.value !== null) campParams.status = campaignStatus.value
-  // Fetch all campaigns (unfiltered) for trend chart, and filtered campaigns for table
-  const [ovRes, campRes, allCampRes, prodRes] = await Promise.all([
-    api.get('/api/ads/overview', { params }),
-    api.get('/api/ads/campaigns', { params: campParams }),
-    api.get('/api/ads/campaigns', { params }),
-    api.get('/api/ads/product-stats', { params }),
-  ])
-  overview.value = ovRes.data
-  campaigns.value = campRes.data
-  productStats.value = prodRes.data
+  try {
+    const params = { date_from: currentFrom, date_to: currentTo }
+    if (shopId.value) params.shop_id = shopId.value
+    const campParams = { ...params }
+    if (campaignStatus.value !== null) campParams.status = campaignStatus.value
+    // Fetch all campaigns (unfiltered) for trend chart, and filtered campaigns for table
+    const [ovRes, campRes, allCampRes, prodRes] = await Promise.all([
+      api.get('/api/ads/overview', { params }),
+      api.get('/api/ads/campaigns', { params: campParams }),
+      api.get('/api/ads/campaigns', { params }),
+      api.get('/api/ads/product-stats', { params }),
+    ])
+    overview.value = ovRes.data
+    campaigns.value = campRes.data
+    productStats.value = prodRes.data
 
-  // Use ALL campaigns' stats for trend chart (not just status-filtered ones)
-  const allStats = []
-  for (const c of allCampRes.data) {
-    try {
-      const res = await api.get(`/api/ads/campaigns/${c.id}/stats`, { params })
-      allStats.push(...res.data)
-    } catch (e) { /* skip */ }
+    // Use ALL campaigns' stats for trend chart (not just status-filtered ones)
+    const allStats = []
+    for (const c of allCampRes.data) {
+      try {
+        const res = await api.get(`/api/ads/campaigns/${c.id}/stats`, { params })
+        allStats.push(...res.data)
+      } catch (e) { /* skip */ }
+    }
+    dailyStats.value = allStats
+  } catch (e) {
+    console.error('Fetch ads data error:', e)
+    ElMessage.error('数据加载失败')
   }
-  dailyStats.value = allStats
 }
 
 onMounted(async () => {

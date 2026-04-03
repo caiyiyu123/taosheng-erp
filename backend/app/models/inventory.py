@@ -11,7 +11,7 @@ def _utcnow():
 class Inventory(Base):
     __tablename__ = "inventories"
     id: Mapped[int] = mapped_column(primary_key=True)
-    shop_id: Mapped[int] = mapped_column(Integer, ForeignKey("shops.id"))
+    shop_id: Mapped[int] = mapped_column(Integer, ForeignKey("shops.id"), index=True)
     wb_product_id: Mapped[str] = mapped_column(String(100), default="")
     product_name: Mapped[str] = mapped_column(String(500), default="")
     sku: Mapped[str] = mapped_column(String(200), default="")

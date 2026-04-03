@@ -102,6 +102,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
@@ -210,8 +211,13 @@ const chartOption = computed(() => {
 })
 
 onMounted(async () => {
-  const { data } = await api.get('/api/dashboard/stats')
-  stats.value = data
+  try {
+    const { data } = await api.get('/api/dashboard/stats')
+    stats.value = data
+  } catch (e) {
+    console.error('Dashboard stats error:', e)
+    ElMessage.error('数据加载失败')
+  }
 })
 </script>
 

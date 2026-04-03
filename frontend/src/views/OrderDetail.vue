@@ -44,13 +44,19 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import api from '../api'
 
 const route = useRoute()
 const order = ref(null)
 
 onMounted(async () => {
-  const { data } = await api.get(`/api/orders/${route.params.id}`)
-  order.value = data
+  try {
+    const { data } = await api.get(`/api/orders/${route.params.id}`)
+    order.value = data
+  } catch (e) {
+    console.error('Fetch order detail error:', e)
+    ElMessage.error('数据加载失败')
+  }
 })
 </script>

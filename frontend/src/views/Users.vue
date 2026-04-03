@@ -131,8 +131,13 @@ function onRoleChange(val) {
 }
 
 async function fetchUsers() {
-  const { data } = await api.get('/api/users')
-  users.value = data
+  try {
+    const { data } = await api.get('/api/users')
+    users.value = data
+  } catch (e) {
+    console.error('Fetch users error:', e)
+    ElMessage.error('数据加载失败')
+  }
 }
 
 function openDialog(row) {
@@ -145,37 +150,51 @@ function openDialog(row) {
 }
 
 async function saveUser() {
-  const isAdmin = form.role === 'admin'
-  if (form.id) {
-    const payload = {
-      role: form.role,
-      shop_ids: isAdmin ? [] : form.shop_ids,
-      permissions: isAdmin ? [] : form.permissions,
+  try {
+    const isAdmin = form.role === 'admin'
+    if (form.id) {
+      const payload = {
+        role: form.role,
+        shop_ids: isAdmin ? [] : form.shop_ids,
+        permissions: isAdmin ? [] : form.permissions,
+      }
+      if (form.username) payload.username = form.username
+      if (form.password) payload.password = form.password
+      await api.put(`/api/users/${form.id}`, payload)
+    } else {
+      await api.post('/api/users', {
+        ...form,
+        shop_ids: isAdmin ? [] : form.shop_ids,
+        permissions: isAdmin ? [] : form.permissions,
+      })
     }
-    if (form.username) payload.username = form.username
-    if (form.password) payload.password = form.password
-    await api.put(`/api/users/${form.id}`, payload)
-  } else {
-    await api.post('/api/users', {
-      ...form,
-      shop_ids: isAdmin ? [] : form.shop_ids,
-      permissions: isAdmin ? [] : form.permissions,
-    })
+    showDialog.value = false
+    Object.assign(form, { ...defaultForm, shop_ids: [], permissions: [] })
+    fetchUsers()
+    ElMessage.success('保存成功')
+  } catch (e) {
+    console.error('Save user error:', e)
+    ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message))
   }
-  showDialog.value = false
-  Object.assign(form, { ...defaultForm, shop_ids: [], permissions: [] })
-  fetchUsers()
-  ElMessage.success('保存成功')
 }
 
 async function deleteUser(id) {
-  await api.delete(`/api/users/${id}`)
-  fetchUsers()
-  ElMessage.success('删除成功')
+  try {
+    await api.delete(`/api/users/${id}`)
+    fetchUsers()
+    ElMessage.success('删除成功')
+  } catch (e) {
+    console.error('Delete user error:', e)
+    ElMessage.error('删除失败: ' + (e.response?.data?.detail || e.message))
+  }
 }
 
 onMounted(async () => {
-  const [, shopRes] = await Promise.all([fetchUsers(), api.get('/api/shops')])
-  shops.value = shopRes.data
+  try {
+    const [, shopRes] = await Promise.all([fetchUsers(), api.get('/api/shops')])
+    shops.value = shopRes.data
+  } catch (e) {
+    console.error('Init users page error:', e)
+  }
 })
 </script>
