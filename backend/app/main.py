@@ -11,6 +11,27 @@ from app.services.scheduler import start_scheduler, stop_scheduler
 
 Base.metadata.create_all(bind=engine)
 
+# Create default admin user if no users exist
+try:
+    from app.database import SessionLocal
+    from app.models.user import User
+    from app.utils.security import hash_password
+    db = SessionLocal()
+    if db.query(User).count() == 0:
+        admin = User(
+            username="admin",
+            hashed_password=hash_password("admin123"),
+            real_name="管理员",
+            role="admin",
+            is_active=True,
+        )
+        db.add(admin)
+        db.commit()
+        print("[Init] Default admin user created: admin / admin123")
+    db.close()
+except Exception as e:
+    print(f"[Init] Warning: {e}")
+
 # Lightweight schema migration: add new columns to existing tables
 try:
     with engine.connect() as conn:
