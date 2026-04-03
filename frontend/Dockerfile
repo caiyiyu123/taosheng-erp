@@ -9,5 +9,7 @@ RUN npm run build
 # Production stage
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
-EXPOSE ${PORT}
+COPY nginx.conf.template /etc/nginx/nginx.conf.template
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+CMD ["/start.sh"]
