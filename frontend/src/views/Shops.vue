@@ -90,16 +90,21 @@ function openDialog(row) {
 }
 
 async function saveShop() {
-  if (form.id) {
-    const payload = { name: form.name, type: form.type }
-    if (form.api_token) payload.api_token = form.api_token
-    await api.put(`/api/shops/${form.id}`, payload)
-  } else {
-    await api.post('/api/shops', form)
+  try {
+    if (form.id) {
+      const payload = { name: form.name, type: form.type }
+      if (form.api_token) payload.api_token = form.api_token
+      await api.put(`/api/shops/${form.id}`, payload)
+    } else {
+      const { name, type, api_token } = form
+      await api.post('/api/shops', { name, type, api_token })
+    }
+    showDialog.value = false
+    fetchShops()
+    ElMessage.success('保存成功')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '保存失败')
   }
-  showDialog.value = false
-  fetchShops()
-  ElMessage.success('保存成功')
 }
 
 async function deleteShop(id) {
