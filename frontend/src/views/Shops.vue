@@ -103,7 +103,9 @@ async function saveShop() {
     fetchShops()
     ElMessage.success('保存成功')
   } catch (e) {
-    ElMessage.error(e.response?.data?.detail || '保存失败')
+    console.error('Shop save error:', e)
+    const msg = e.response?.data?.detail || e.message || '保存失败'
+    ElMessage.error(`保存失败: ${msg}`)
   }
 }
 
