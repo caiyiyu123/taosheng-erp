@@ -2,7 +2,7 @@
   <el-container class="ts-layout">
     <el-aside width="220px" class="ts-sidebar">
       <div class="ts-logo">
-        <img src="/logo.png" alt="TS" class="ts-logo-icon" />
+        <img :src="appLogo" alt="Logo" class="ts-logo-icon" />
         <span class="ts-logo-text">{{ appTitle }}</span>
       </div>
       <el-menu
@@ -73,9 +73,10 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { DataAnalysis, Box, Goods, TrendCharts, Money, List, Shop, User } from '@element-plus/icons-vue'
-import { APP_TITLE } from '../brand'
+import { APP_TITLE, APP_LOGO } from '../brand'
 
 const appTitle = APP_TITLE
+const appLogo = APP_LOGO
 
 const authStore = useAuthStore()
 const router = useRouter()

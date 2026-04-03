@@ -4,7 +4,7 @@
     <div class="ts-login-card">
       <div class="ts-login-header">
         <div class="ts-login-logo">
-          <img src="/logo.png" alt="TS" class="ts-login-logo-icon" />
+          <img :src="appLogo" alt="Logo" class="ts-login-logo-icon" />
         </div>
         <h1 class="ts-login-title">{{ appTitle }}</h1>
         <p class="ts-login-subtitle">企业资源管理平台</p>
@@ -31,9 +31,10 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
-import { APP_TITLE } from '../brand'
+import { APP_TITLE, APP_LOGO } from '../brand'
 
 const appTitle = APP_TITLE
+const appLogo = APP_LOGO
 
 const form = reactive({ username: '', password: '' })
 const loading = ref(false)
