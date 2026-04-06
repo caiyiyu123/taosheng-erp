@@ -375,7 +375,13 @@ def _sync_fbo_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict)
     for r in report_data:
         srid = r.get("srid", "")
         qty = r.get("quantity", 0)
+        price_rub = r.get("retail_price_withdisc_rub", 0) or 0
         if not srid or qty <= 0 or srid in seen_srids:
+            continue
+
+        # Skip fee/logistics records: they have quantity>0 but price=0
+        # Real sales have retail_price_withdisc_rub > 0
+        if price_rub <= 0:
             continue
 
         nm_id = r.get("nm_id", 0)
