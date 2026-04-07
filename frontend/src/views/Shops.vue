@@ -38,15 +38,12 @@
 
   <el-card v-if="isAdmin" style="margin-top: 16px">
     <template #header><span>汇率设置</span></template>
-    <el-form :inline="true" @submit.prevent="saveRate">
-      <el-form-item label="人民币兑卢布汇率">
-        <el-input-number v-model="exchangeRate" :precision="2" :step="0.1" :min="0" style="width: 160px" />
-      </el-form-item>
-      <el-form-item>
-        <span style="color: #999; font-size: 13px; margin-right: 12px">1 CNY = {{ exchangeRate }} RUB</span>
-        <el-button type="primary" size="small" @click="saveRate">保存</el-button>
-      </el-form-item>
-    </el-form>
+    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+      <div style="text-align: center; line-height: 1.2"><span style="font-size: 15px; font-weight: bold">人民币兑卢布汇率</span><br><span style="color: #bbb; font-size: 12px">(对本土店使用)</span></div>
+      <el-input-number v-model="exchangeRate" :precision="2" :step="0.1" :min="0" style="width: 160px" />
+      <span style="color: #999; font-size: 13px">1 CNY = {{ exchangeRate }} RUB</span>
+      <el-button type="primary" size="small" @click="saveRate">保存</el-button>
+    </div>
   </el-card>
 
   <el-dialog v-model="showDialog" :title="form.id ? '编辑店铺' : '添加店铺'" width="500px">
