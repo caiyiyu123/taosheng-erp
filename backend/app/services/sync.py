@@ -1088,8 +1088,6 @@ def sync_shop_products(db: Session, shop: Shop, cards: list[dict] | None = None)
         price = float(price_info.get("price", 0))
         currency = price_info.get("currency", "RUB")
         discount = int(price_info.get("discount", 0))
-        rub_price = public_rub.get(nm_id, 0)
-
         existing = db.query(ShopProduct).filter(
             ShopProduct.shop_id == shop.id,
             ShopProduct.nm_id == nm_id,
@@ -1101,7 +1099,6 @@ def sync_shop_products(db: Session, shop: Shop, cards: list[dict] | None = None)
             if image_url:
                 existing.image_url = image_url
             existing.price = price
-            existing.price_rub = rub_price
             existing.currency = currency
             existing.discount = discount
             existing.rating = rating
@@ -1114,7 +1111,6 @@ def sync_shop_products(db: Session, shop: Shop, cards: list[dict] | None = None)
                 vendor_code=vendor_code,
                 image_url=image_url,
                 price=price,
-                price_rub=rub_price,
                 currency=currency,
                 discount=discount,
                 rating=rating,
