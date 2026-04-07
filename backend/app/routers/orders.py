@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
-from app.models.order import Order, OrderItem
+from app.models.order import Order, OrderItem, OrderStatusLog
 from app.models.shop import Shop
 from app.schemas.order import OrderOut, OrderListOut
 from app.utils.deps import get_current_user, get_accessible_shop_ids, require_module, require_role
@@ -127,3 +127,16 @@ def get_order(order_id: int, db: Session = Depends(get_db), accessible_shops: li
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
+
+
+# --- 临时接口：清空 FBW 订单数据（用完后删除） ---
+@router.delete("/cleanup-fbw")
+def cleanup_fbw_orders(db: Session = Depends(get_db), _=Depends(require_role("admin"))):
+    fbw_orders = db.query(Order).filter(Order.order_type == "FBW").all()
+    count = len(fbw_orders)
+    for o in fbw_orders:
+        db.query(OrderStatusLog).filter(OrderStatusLog.order_id == o.id).delete()
+        db.query(OrderItem).filter(OrderItem.order_id == o.id).delete()
+        db.delete(o)
+    db.commit()
+    return {"detail": f"已清除 {count} 条 FBW 订单"}
