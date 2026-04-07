@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import UPLOAD_DIR, CORS_ORIGINS
 from app.database import Base, engine
 import app.models  # noqa: F401
-from app.routers import auth, users, shops, products, sku_mappings, orders, inventory, finance, dashboard, ads
+from app.routers import auth, users, shops, products, sku_mappings, orders, inventory, finance, dashboard, ads, shop_products
 from app.services.scheduler import start_scheduler, stop_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -50,6 +50,17 @@ try:
             if "wb_image_url" not in sku_cols:
                 conn.execute(text("ALTER TABLE sku_mappings ADD COLUMN wb_image_url VARCHAR(500) DEFAULT ''"))
             conn.commit()
+        if "shop_products" in inspector.get_table_names():
+            sp_cols = {c["name"] for c in inspector.get_columns("shop_products")}
+            if "price" not in sp_cols:
+                conn.execute(text("ALTER TABLE shop_products ADD COLUMN price FLOAT DEFAULT 0.0"))
+            if "discount" not in sp_cols:
+                conn.execute(text("ALTER TABLE shop_products ADD COLUMN discount INTEGER DEFAULT 0"))
+            if "currency" not in sp_cols:
+                conn.execute(text("ALTER TABLE shop_products ADD COLUMN currency VARCHAR(10) DEFAULT 'RUB'"))
+            if "price_rub" not in sp_cols:
+                conn.execute(text("ALTER TABLE shop_products ADD COLUMN price_rub FLOAT DEFAULT 0.0"))
+            conn.commit()
 except Exception as e:
     print(f"[Migration] Warning: {e}")
 
@@ -83,6 +94,7 @@ app.include_router(inventory.router)
 app.include_router(finance.router)
 app.include_router(dashboard.router)
 app.include_router(ads.router)
+app.include_router(shop_products.router)
 
 
 @app.get("/api/health")

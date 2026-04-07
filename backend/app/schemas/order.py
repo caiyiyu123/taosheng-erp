@@ -36,6 +36,7 @@ class OrderOut(BaseModel):
     status: str
     total_price: float
     price_rub: float = 0.0
+    price_cny: float = 0.0
     currency: str
     customer_name: str
     warehouse_name: str
@@ -48,5 +49,5 @@ class OrderOut(BaseModel):
 
 
 class OrderListOut(BaseModel):
-    items: list[OrderOut]
+    items: list[dict]
     total: int

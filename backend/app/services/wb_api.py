@@ -209,6 +209,122 @@ def fetch_cards(api_token: str) -> list[dict]:
     return all_cards
 
 
+def fetch_product_prices(api_token: str) -> dict[int, dict]:
+    """GET /api/v2/list/goods/filter — fetch product prices.
+
+    Returns dict: {nm_id: {"price": 1500.0, "discount": 10}}
+    """
+    url = "https://discounts-prices-api.wildberries.ru/api/v2/list/goods/filter"
+    result = {}
+    offset = 0
+    limit = 1000
+
+    try:
+        with httpx.Client(timeout=30) as client:
+            while True:
+                _throttle()
+                resp = client.get(url, headers=_headers(api_token), params={
+                    "limit": limit,
+                    "offset": offset,
+                })
+                if resp.status_code != 200:
+                    print(f"[WB API] Prices status={resp.status_code}, resp={resp.text[:200]}")
+                    break
+                data = resp.json()
+                goods = data.get("data", {}).get("listGoods", [])
+                if not goods:
+                    break
+                # Debug: print first product's raw data
+                if offset == 0 and goods:
+                    print(f"[WB API] Prices sample: {goods[0]}")
+                for g in goods:
+                    nm_id = g.get("nmID", 0)
+                    sizes = g.get("sizes", [])
+                    discount = g.get("discount", 0)
+                    currency_code = g.get("currencyIsoCode4217", "RUB")
+                    # Map ISO 4217 codes
+                    currency = "CNY" if currency_code == "CNY" else "RUB"
+                    # Get price from first size
+                    price = 0
+                    if sizes:
+                        price = sizes[0].get("discountedPrice", 0) or sizes[0].get("price", 0)
+                    if nm_id:
+                        result[nm_id] = {"price": price, "discount": discount, "currency": currency}
+                offset += limit
+                if len(goods) < limit:
+                    break
+    except Exception as e:
+        print(f"[WB API] Error fetching product prices: {e}")
+
+    print(f"[WB API] Prices fetched for {len(result)} products")
+    return result
+
+
+def fetch_product_ratings(api_token: str, nm_ids: list[int]) -> dict[int, dict]:
+    """Fetch product ratings via WB Feedbacks API.
+
+    For each nmId, fetches feedbacks and calculates average rating.
+    Returns dict: {nm_id: {"valuation": 4.5, "feedbacksCount": 42}}
+    """
+    FEEDBACKS_API = "https://feedbacks-api.wildberries.ru"
+    url = f"{FEEDBACKS_API}/api/v1/feedbacks"
+    result = {}
+
+    try:
+        with httpx.Client(timeout=30) as client:
+            for nm_id in nm_ids:
+                _throttle()
+                try:
+                    resp = client.get(url, headers=_headers(api_token), params={
+                        "nmId": nm_id,
+                        "isAnswered": True,
+                        "take": 5000,
+                        "skip": 0,
+                    })
+                    if resp.status_code != 200:
+                        print(f"[WB API] Feedbacks for nm={nm_id}: status={resp.status_code}")
+                        continue
+                    data = resp.json()
+                    feedbacks = data.get("data", {}).get("feedbacks", [])
+                    if feedbacks:
+                        total_rating = sum(f.get("productValuation", 0) for f in feedbacks)
+                        count = len(feedbacks)
+                        avg_rating = round(total_rating / count, 1) if count > 0 else 0
+                        # Also count unanswered feedbacks
+                        unanswered = data.get("data", {}).get("countUnanswered", 0)
+                        total_count = count + unanswered
+                        result[nm_id] = {
+                            "valuation": avg_rating,
+                            "feedbacksCount": total_count,
+                        }
+                    else:
+                        # Try unanswered feedbacks too
+                        resp2 = client.get(url, headers=_headers(api_token), params={
+                            "nmId": nm_id,
+                            "isAnswered": False,
+                            "take": 5000,
+                            "skip": 0,
+                        })
+                        if resp2.status_code == 200:
+                            data2 = resp2.json()
+                            feedbacks2 = data2.get("data", {}).get("feedbacks", [])
+                            if feedbacks2:
+                                total_rating = sum(f.get("productValuation", 0) for f in feedbacks2)
+                                count = len(feedbacks2)
+                                avg_rating = round(total_rating / count, 1) if count > 0 else 0
+                                result[nm_id] = {
+                                    "valuation": avg_rating,
+                                    "feedbacksCount": count,
+                                }
+                except Exception as e:
+                    print(f"[WB API] Error fetching feedbacks for nm={nm_id}: {e}")
+    except Exception as e:
+        print(f"[WB API] Error in fetch_product_ratings: {e}")
+
+    print(f"[WB API] Ratings fetched for {len(result)}/{len(nm_ids)} products")
+    return result
+
+
 def fetch_statistics_orders(api_token: str, date_from: Optional[datetime] = None) -> list[dict]:
     """GET /api/v1/supplier/orders — fetch orders from Statistics API.
 
@@ -428,3 +544,93 @@ def fetch_ad_campaign_names(api_token: str) -> dict[int, str]:
     except Exception as e:
         print(f"[WB API] Error fetching ad campaign names: {e}")
         return {}
+
+
+def fetch_public_rub_prices(nm_ids: list[int]) -> dict[int, float]:
+    """Fetch RUB prices from WB public card API (no auth needed).
+
+    Tries multiple approaches: card.wb.ru with session cookies, then search API.
+    Returns dict: {nm_id: rub_price}
+    """
+    result = {}
+    batch_size = 50
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8",
+    }
+
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            # Step 1: visit main site to get cookies
+            try:
+                client.get("https://www.wildberries.ru/", headers=headers)
+            except Exception:
+                pass
+
+            # Step 2: fetch card details with cookies
+            for i in range(0, len(nm_ids), batch_size):
+                batch = nm_ids[i:i + batch_size]
+                nm_str = ";".join(str(n) for n in batch)
+                url = f"https://card.wb.ru/cards/v2/detail?appType=1&curr=rub&dest=-1257786&spp=30&nm={nm_str}"
+                try:
+                    time.sleep(0.5)
+                    resp = client.get(url, headers={
+                        **headers,
+                        "Origin": "https://www.wildberries.ru",
+                        "Referer": "https://www.wildberries.ru/",
+                    })
+                    if resp.status_code != 200:
+                        print(f"[WB Public] Card v2 status={resp.status_code}, trying v1...")
+                        # Try v1 endpoint
+                        url_v1 = f"https://card.wb.ru/cards/detail?appType=1&curr=rub&dest=-1257786&nm={nm_str}"
+                        resp = client.get(url_v1, headers=headers)
+                        if resp.status_code != 200:
+                            print(f"[WB Public] Card v1 status={resp.status_code}")
+                            continue
+                    data = resp.json()
+                    products = data.get("data", {}).get("products", [])
+                    for p in products:
+                        pid = p.get("id")
+                        sale_price = p.get("salePriceU", 0)
+                        if pid and sale_price > 0:
+                            result[pid] = sale_price / 100.0
+                except Exception as e:
+                    print(f"[WB Public] Error fetching batch: {e}")
+    except Exception as e:
+        print(f"[WB Public] Error: {e}")
+
+    # Fallback: try search API if card API failed
+    if not result:
+        print("[WB Public] Card API failed, trying search API...")
+        try:
+            with httpx.Client(timeout=15, follow_redirects=True) as client:
+                try:
+                    client.get("https://www.wildberries.ru/", headers=headers)
+                except Exception:
+                    pass
+                # Search by nm_id in small batches
+                for nm_id in nm_ids:
+                    try:
+                        time.sleep(0.3)
+                        url = f"https://search.wb.ru/exactmatch/ru/common/v7/search?appType=1&curr=rub&dest=-1257786&query={nm_id}&resultset=catalog&suppressSpellcheck=false"
+                        resp = client.get(url, headers=headers)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            products = data.get("data", {}).get("products", [])
+                            for p in products:
+                                pid = p.get("id")
+                                sale_price = p.get("salePriceU", 0)
+                                if pid == nm_id and sale_price > 0:
+                                    result[pid] = sale_price / 100.0
+                                    break
+                        else:
+                            print(f"[WB Public] Search status={resp.status_code}")
+                            break  # If search also blocked, stop
+                    except Exception as e:
+                        print(f"[WB Public] Search error for {nm_id}: {e}")
+        except Exception as e:
+            print(f"[WB Public] Search error: {e}")
+
+    print(f"[WB Public] RUB prices fetched for {len(result)}/{len(nm_ids)} products")
+    return result

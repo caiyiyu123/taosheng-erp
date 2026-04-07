@@ -2,8 +2,10 @@ import threading
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
 from app.database import get_db, SessionLocal
 from app.models.shop import Shop
+from app.models.setting import SystemSetting
 from app.schemas.shop import ShopCreate, ShopUpdate, ShopOut
 from app.utils.security import encrypt_token, decrypt_token
 from app.utils.deps import require_role, get_current_user, get_accessible_shop_ids, require_module
@@ -21,6 +23,29 @@ def list_shops(db: Session = Depends(get_db), shop_ids: list[int] | None = Depen
     if shop_ids is not None:
         query = query.filter(Shop.id.in_(shop_ids))
     return query.all()
+
+
+class ExchangeRateBody(BaseModel):
+    rate: float
+
+
+@router.get("/exchange-rate")
+def get_exchange_rate(db: Session = Depends(get_db), _=Depends(require_role("admin", "operator"))):
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "exchange_rate_cny_rub").first()
+    rate = float(setting.value) if setting else 0
+    return {"rate": rate}
+
+
+@router.put("/exchange-rate")
+def set_exchange_rate(body: ExchangeRateBody, db: Session = Depends(get_db), _=Depends(require_role("admin"))):
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "exchange_rate_cny_rub").first()
+    if setting:
+        setting.value = str(body.rate)
+    else:
+        setting = SystemSetting(key="exchange_rate_cny_rub", value=str(body.rate))
+        db.add(setting)
+    db.commit()
+    return {"rate": body.rate}
 
 
 @router.post("", response_model=ShopOut, status_code=status.HTTP_201_CREATED)
@@ -55,7 +80,7 @@ def delete_shop(shop_id: int, db: Session = Depends(get_db), _=Depends(require_r
     from app.models.order import Order, OrderItem, OrderStatusLog
     from app.models.inventory import Inventory
     from app.models.ad import AdCampaign, AdDailyStat
-    from app.models.product import SkuMapping
+    from app.models.product import SkuMapping, ShopProduct
 
     shop = db.query(Shop).filter(Shop.id == shop_id).first()
     if not shop:
@@ -75,13 +100,14 @@ def delete_shop(shop_id: int, db: Session = Depends(get_db), _=Depends(require_r
 
     db.query(Inventory).filter(Inventory.shop_id == shop_id).delete(synchronize_session=False)
     db.query(SkuMapping).filter(SkuMapping.shop_id == shop_id).delete(synchronize_session=False)
+    db.query(ShopProduct).filter(ShopProduct.shop_id == shop_id).delete(synchronize_session=False)
 
     db.delete(shop)
     db.commit()
     return {"detail": "Shop and all related data deleted"}
 
 
-from app.services.sync import sync_shop_orders, sync_shop_inventory, sync_shop_ads
+from app.services.sync import sync_shop_orders, sync_shop_inventory, sync_shop_ads, sync_shop_products
 
 
 def _run_sync(shop_id: int):
@@ -96,6 +122,7 @@ def _run_sync(shop_id: int):
         cards = sync_shop_orders(db, shop)
         sync_shop_inventory(db, shop)
         sync_shop_ads(db, shop, cards=cards)
+        sync_shop_products(db, shop, cards=cards)
         with _sync_lock:
             _sync_status[shop_id] = {"status": "done", "detail": f"Sync completed for {shop.name}"}
     except Exception as e:

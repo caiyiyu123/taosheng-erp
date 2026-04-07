@@ -72,8 +72,8 @@
       <el-table-column prop="price_rub" label="金额(₽)" min-width="100">
         <template #default="{ row }">₽{{ Math.round(row.price_rub || 0)?.toLocaleString() }}</template>
       </el-table-column>
-      <el-table-column prop="total_price" label="金额(¥)" min-width="100">
-        <template #default="{ row }">¥{{ row.total_price?.toLocaleString() }}</template>
+      <el-table-column prop="price_cny" label="金额(¥)" min-width="100">
+        <template #default="{ row }">¥{{ (row.price_cny || 0)?.toLocaleString() }}</template>
       </el-table-column>
       <el-table-column prop="status" label="状态" min-width="80">
         <template #default="{ row }">

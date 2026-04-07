@@ -20,6 +20,10 @@
           <el-icon><Box /></el-icon>
           <span>订单管理</span>
         </el-menu-item>
+        <el-menu-item v-if="hasPerm('products')" index="/shop-products">
+          <el-icon><ShoppingCart /></el-icon>
+          <span>产品管理</span>
+        </el-menu-item>
         <el-menu-item v-if="hasPerm('products')" index="/products">
           <el-icon><Goods /></el-icon>
           <span>商品管理</span>
@@ -72,7 +76,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { DataAnalysis, Box, Goods, TrendCharts, Money, List, Shop, User } from '@element-plus/icons-vue'
+import { DataAnalysis, Box, ShoppingCart, Goods, TrendCharts, Money, List, Shop, User } from '@element-plus/icons-vue'
 import { APP_TITLE, APP_LOGO } from '../brand'
 
 const appTitle = APP_TITLE

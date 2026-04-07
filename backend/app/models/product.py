@@ -25,6 +25,25 @@ class Product(Base):
     sku_mappings: Mapped[list["SkuMapping"]] = relationship(back_populates="product")
 
 
+class ShopProduct(Base):
+    """WB store product — synced from Content API + Feedbacks API."""
+    __tablename__ = "shop_products"
+    __table_args__ = (UniqueConstraint("shop_id", "nm_id", name="uq_shop_nm"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shop_id: Mapped[int] = mapped_column(Integer, ForeignKey("shops.id"), index=True)
+    nm_id: Mapped[int] = mapped_column(Integer, index=True)
+    title: Mapped[str] = mapped_column(String(500), default="")
+    vendor_code: Mapped[str] = mapped_column(String(200), default="")  # SKU
+    image_url: Mapped[str] = mapped_column(String(500), default="")
+    price: Mapped[float] = mapped_column(Float, default=0.0)
+    price_rub: Mapped[float] = mapped_column(Float, default=0.0)
+    currency: Mapped[str] = mapped_column(String(10), default="RUB")
+    discount: Mapped[int] = mapped_column(Integer, default=0)
+    rating: Mapped[float] = mapped_column(Float, default=0.0)
+    feedbacks_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class SkuMapping(Base):
     __tablename__ = "sku_mappings"
     __table_args__ = (UniqueConstraint("shop_id", "shop_sku", name="uq_shop_sku"),)

@@ -36,6 +36,19 @@
     </el-table>
   </el-card>
 
+  <el-card v-if="isAdmin" style="margin-top: 16px">
+    <template #header><span>汇率设置</span></template>
+    <el-form :inline="true" @submit.prevent="saveRate">
+      <el-form-item label="人民币兑卢布汇率">
+        <el-input-number v-model="exchangeRate" :precision="2" :step="0.1" :min="0" style="width: 160px" />
+      </el-form-item>
+      <el-form-item>
+        <span style="color: #999; font-size: 13px; margin-right: 12px">1 CNY = {{ exchangeRate }} RUB</span>
+        <el-button type="primary" size="small" @click="saveRate">保存</el-button>
+      </el-form-item>
+    </el-form>
+  </el-card>
+
   <el-dialog v-model="showDialog" :title="form.id ? '编辑店铺' : '添加店铺'" width="500px">
     <el-form :model="form" label-width="100px">
       <el-form-item label="店铺名称"><el-input v-model="form.name" /></el-form-item>
@@ -68,6 +81,7 @@ const showDialog = ref(false)
 const syncing = ref(null)
 const defaultForm = { id: null, name: '', type: 'local', api_token: '' }
 const form = reactive({ ...defaultForm })
+const exchangeRate = ref(0)
 
 function formatTime(dt) {
   if (!dt) return '-'
@@ -159,7 +173,26 @@ async function syncShop(id) {
   }
 }
 
-onMounted(fetchShops)
+async function fetchExchangeRate() {
+  try {
+    const { data } = await api.get('/api/shops/exchange-rate')
+    exchangeRate.value = data.rate || 0
+  } catch {}
+}
+
+async function saveRate() {
+  try {
+    await api.put('/api/shops/exchange-rate', { rate: exchangeRate.value })
+    ElMessage.success('汇率已保存')
+  } catch {
+    ElMessage.error('保存失败')
+  }
+}
+
+onMounted(() => {
+  fetchShops()
+  fetchExchangeRate()
+})
 
 onUnmounted(() => {
   if (syncPollTimer) {

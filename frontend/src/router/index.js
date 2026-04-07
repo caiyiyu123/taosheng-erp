@@ -11,6 +11,7 @@ const routes = [
       { path: '', name: 'Dashboard', meta: { module: 'dashboard' }, component: () => import('../views/Dashboard.vue') },
       { path: 'orders', name: 'Orders', meta: { module: 'orders' }, component: () => import('../views/Orders.vue') },
       { path: 'orders/:id', name: 'OrderDetail', meta: { module: 'orders' }, component: () => import('../views/OrderDetail.vue') },
+      { path: 'shop-products', name: 'ShopProducts', meta: { module: 'products' }, component: () => import('../views/ShopProducts.vue') },
       { path: 'products', name: 'Products', meta: { module: 'products' }, component: () => import('../views/Products.vue') },
       { path: 'ads', name: 'AdsOverview', meta: { module: 'ads' }, component: () => import('../views/AdsOverview.vue') },
       { path: 'ads/:id', name: 'AdDetail', meta: { module: 'ads' }, component: () => import('../views/AdDetail.vue') },

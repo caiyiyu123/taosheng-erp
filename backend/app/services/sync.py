@@ -13,6 +13,7 @@ from app.services.wb_api import (
     fetch_statistics_orders, fetch_report_detail,
     fetch_ad_campaign_ids, fetch_ad_details, fetch_ad_fullstats,
     fetch_ad_campaign_names, fetch_ad_budgets_batch,
+    fetch_product_ratings, fetch_product_prices,
 )
 
 # WB supplier status → system status
@@ -123,23 +124,26 @@ def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
         # Parse price from WB API response
         # WB returns multiple price fields: salePrice (actual sale price),
         # finalPrice/convertedFinalPrice, price/convertedPrice (base price, often 0 for new orders)
+        rub_price_minor = (
+            raw.get("salePrice", 0)
+            or raw.get("finalPrice", 0)
+            or raw.get("price", 0)
+        )
+        price_rub_val = rub_price_minor / 100.0
+
         converted_currency = raw.get("convertedCurrencyCode", 0)
         if converted_currency and converted_currency != raw.get("currencyCode", 643):
-            # Cross-border: use converted currency fields
-            price_minor = (
+            # Cross-border: also has converted currency (CNY)
+            cny_price_minor = (
                 raw.get("convertedFinalPrice", 0)
                 or raw.get("convertedPrice", 0)
             )
+            price = cny_price_minor / 100.0
             currency = CURRENCY_MAP.get(converted_currency, "CNY")
         else:
-            # Local: use main currency fields
-            price_minor = (
-                raw.get("salePrice", 0)
-                or raw.get("finalPrice", 0)
-                or raw.get("price", 0)
-            )
+            # Local: RUB only
+            price = price_rub_val
             currency = CURRENCY_MAP.get(raw.get("currencyCode", 643), "RUB")
-        price = price_minor / 100.0  # Convert minor units to major (kopecks→RUB, fen→CNY)
 
         nm_id = raw.get("nmId", 0)
         article = raw.get("article", "")  # 卖家商品编码 (seller article)
@@ -168,9 +172,9 @@ def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
                 existing.total_price = price
                 existing.currency = currency
                 existing.updated_at = datetime.now(timezone.utc)
-            # Fill price_rub if currency is RUB
-            if existing.price_rub == 0 and existing.currency == "RUB" and existing.total_price > 0:
-                existing.price_rub = existing.total_price
+            # Fill price_rub from API RUB price
+            if existing.price_rub == 0 and price_rub_val > 0:
+                existing.price_rub = price_rub_val
 
             # Fix created_at if it differs from API time (was stored as sync time)
             if order_created and existing.created_at:
@@ -235,7 +239,7 @@ def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
             order_type=order_type,
             status="pending",
             total_price=price,
-            price_rub=price if currency == "RUB" else 0.0,
+            price_rub=price_rub_val,
             currency=currency,
             warehouse_name=str(warehouse_id),
             created_at=order_created or datetime.now(timezone.utc),
@@ -1043,3 +1047,76 @@ def sync_shop_ads(db: Session, shop: Shop, cards: list[dict] | None = None):
         except Exception as e:
             print(f"[Sync] Ad card backfill skipped (non-fatal): {e}")
     print(f"[Sync] Ad sync complete for shop {shop.name}: {len(campaign_map)} campaigns")
+
+
+def sync_shop_products(db: Session, shop: Shop, cards: list[dict] | None = None):
+    """Sync WB products for a shop: fetch cards + ratings, upsert into ShopProduct."""
+    from app.models.product import ShopProduct
+
+    api_token = decrypt_token(shop.api_token)
+    if cards is None:
+        cards = fetch_cards(api_token)
+
+    if not cards:
+        print(f"[Sync] No product cards for shop {shop.name}")
+        return
+
+    # Build nm_id list and fetch ratings + prices
+    nm_ids = [c.get("nmID") for c in cards if c.get("nmID")]
+    ratings = fetch_product_ratings(api_token, nm_ids) if nm_ids else {}
+    prices = fetch_product_prices(api_token)
+
+    for card in cards:
+        nm_id = card.get("nmID")
+        if not nm_id:
+            continue
+
+        title = card.get("title", "")
+        vendor_code = card.get("vendorCode", "")
+        photos = card.get("photos", [])
+        image_url = photos[0].get("c246x328", "") if photos else ""
+
+        rating_info = ratings.get(nm_id, {})
+        rating = float(rating_info.get("valuation", 0))
+        feedbacks_count = int(rating_info.get("feedbacksCount", 0))
+
+        price_info = prices.get(nm_id, {})
+        price = float(price_info.get("price", 0))
+        currency = price_info.get("currency", "RUB")
+        discount = int(price_info.get("discount", 0))
+        rub_price = public_rub.get(nm_id, 0)
+
+        existing = db.query(ShopProduct).filter(
+            ShopProduct.shop_id == shop.id,
+            ShopProduct.nm_id == nm_id,
+        ).first()
+
+        if existing:
+            existing.title = title
+            existing.vendor_code = vendor_code
+            if image_url:
+                existing.image_url = image_url
+            existing.price = price
+            existing.price_rub = rub_price
+            existing.currency = currency
+            existing.discount = discount
+            existing.rating = rating
+            existing.feedbacks_count = feedbacks_count
+        else:
+            product = ShopProduct(
+                shop_id=shop.id,
+                nm_id=nm_id,
+                title=title,
+                vendor_code=vendor_code,
+                image_url=image_url,
+                price=price,
+                price_rub=rub_price,
+                currency=currency,
+                discount=discount,
+                rating=rating,
+                feedbacks_count=feedbacks_count,
+            )
+            db.add(product)
+
+    db.commit()
+    print(f"[Sync] Product sync complete for shop {shop.name}: {len(cards)} products")

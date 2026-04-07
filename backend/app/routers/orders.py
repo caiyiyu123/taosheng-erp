@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
 from app.models.order import Order, OrderItem, OrderStatusLog
 from app.models.shop import Shop
+from app.models.setting import SystemSetting
 from app.schemas.order import OrderOut, OrderListOut
 from app.utils.deps import get_current_user, get_accessible_shop_ids, require_module, require_role
 from app.services.sync import sync_shop_orders
@@ -71,7 +72,30 @@ def list_orders(
             query = query.filter(Order.wb_order_id.like(keyword))
     total = query.count()
     orders = query.order_by(Order.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return OrderListOut(items=orders, total=total)
+
+    # Get exchange rate and shop types for CNY calculation
+    rate_setting = db.query(SystemSetting).filter(SystemSetting.key == "exchange_rate_cny_rub").first()
+    exchange_rate = float(rate_setting.value) if rate_setting and rate_setting.value else 0
+
+    shop_ids = list({o.shop_id for o in orders})
+    shop_types = {}
+    if shop_ids:
+        for s in db.query(Shop.id, Shop.type).filter(Shop.id.in_(shop_ids)).all():
+            shop_types[s.id] = s.type
+
+    items = []
+    for o in orders:
+        data = OrderOut.model_validate(o).model_dump()
+        stype = shop_types.get(o.shop_id, "local")
+        if stype == "local":
+            # Local shop: price_cny = price_rub / exchange_rate
+            data["price_cny"] = round(o.price_rub / exchange_rate, 2) if exchange_rate > 0 and o.price_rub > 0 else 0
+        else:
+            # Cross-border: total_price is already CNY
+            data["price_cny"] = o.total_price
+        items.append(data)
+
+    return OrderListOut(items=items, total=total)
 
 
 # --- Sync endpoints (must be before /{order_id} to avoid route conflict) ---
