@@ -12,6 +12,7 @@ class Order(Base):
     __tablename__ = "orders"
     id: Mapped[int] = mapped_column(primary_key=True)
     wb_order_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    srid: Mapped[str] = mapped_column(String(200), default="")
     shop_id: Mapped[int] = mapped_column(Integer, ForeignKey("shops.id"), index=True)
     order_type: Mapped[str] = mapped_column(String(10))
     status: Mapped[str] = mapped_column(String(50), default="pending", index=True)

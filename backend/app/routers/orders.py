@@ -1,4 +1,5 @@
 import threading
+import traceback
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -63,13 +64,13 @@ def list_orders(
             row[0] for row in
             db.query(OrderItem.order_id).filter(OrderItem.sku.like(keyword)).all()
         ]
-        # Search by order number or product SKU
+        # Search by order number, srid, or product SKU
         if sku_order_ids:
             query = query.filter(
-                Order.wb_order_id.like(keyword) | Order.id.in_(sku_order_ids)
+                Order.wb_order_id.like(keyword) | Order.srid.like(keyword) | Order.id.in_(sku_order_ids)
             )
         else:
-            query = query.filter(Order.wb_order_id.like(keyword))
+            query = query.filter(Order.wb_order_id.like(keyword) | Order.srid.like(keyword))
     total = query.count()
     orders = query.order_by(Order.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
@@ -111,10 +112,13 @@ def _run_order_sync():
                 synced += 1
             except Exception as e:
                 print(f"[OrderSync] Failed for {shop.name}: {e}")
+                traceback.print_exc()
         with _order_sync_lock:
             _order_sync_status["status"] = "done"
             _order_sync_status["detail"] = f"已同步 {synced}/{len(shops)} 个店铺的订单"
     except Exception as e:
+        print(f"[OrderSync] Fatal error: {e}")
+        traceback.print_exc()
         with _order_sync_lock:
             _order_sync_status["status"] = "error"
             _order_sync_status["detail"] = str(e)
@@ -182,11 +186,14 @@ def _run_full_order_sync():
                 synced += 1
             except Exception as e:
                 print(f"[FullSync] Failed for {shop.name}: {e}")
+                traceback.print_exc()
 
         with _order_sync_lock:
             _order_sync_status["status"] = "done"
             _order_sync_status["detail"] = f"全量同步完成，已同步 {synced}/{len(shops)} 个店铺"
     except Exception as e:
+        print(f"[FullSync] Fatal error: {e}")
+        traceback.print_exc()
         with _order_sync_lock:
             _order_sync_status["status"] = "error"
             _order_sync_status["detail"] = str(e)

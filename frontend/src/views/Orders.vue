@@ -58,7 +58,14 @@
           <span v-else style="color: #ccc; font-size: 12px">无图</span>
         </template>
       </el-table-column>
-      <el-table-column prop="wb_order_id" label="订单号" min-width="130" />
+      <el-table-column label="订单ID" min-width="200">
+        <template #default="{ row }">
+          <el-tooltip v-if="(row.srid || row.wb_order_id || '').length > 25" :content="row.srid || row.wb_order_id" placement="top">
+            <span style="font-size: 12px; cursor: pointer">{{ (row.srid || row.wb_order_id || '').slice(0, 12) }}...{{ (row.srid || row.wb_order_id || '').slice(-8) }}</span>
+          </el-tooltip>
+          <span v-else style="font-size: 12px">{{ row.srid || row.wb_order_id || '-' }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="产品SKU" min-width="130">
         <template #default="{ row }">
           <span v-if="row.items && row.items.length">{{ row.items[0].sku }}</span>

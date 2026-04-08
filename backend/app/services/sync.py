@@ -10,7 +10,7 @@ from app.utils.security import decrypt_token
 from app.services.wb_api import (
     fetch_new_orders, fetch_orders, fetch_order_statuses,
     fetch_warehouses, fetch_stocks, fetch_cards,
-    fetch_statistics_orders, fetch_report_detail,
+    fetch_statistics_orders, fetch_statistics_sales, fetch_report_detail,
     fetch_ad_campaign_ids, fetch_ad_details, fetch_ad_fullstats,
     fetch_ad_campaign_names, fetch_ad_budgets_batch,
     fetch_product_ratings, fetch_product_prices,
@@ -49,10 +49,7 @@ CURRENCY_MAP = {
 
 
 def _resolve_status(supplier_status: str, wb_status: str) -> str:
-    """Determine system status from WB supplier and platform statuses.
-
-    Priority: wb_status (platform) > supplier_status (seller side).
-    """
+    """Determine system status from WB supplier and platform statuses."""
     if wb_status and wb_status in WB_STATUS_MAP:
         return WB_STATUS_MAP[wb_status]
     if supplier_status and supplier_status in SUPPLIER_STATUS_MAP:
@@ -60,51 +57,11 @@ def _resolve_status(supplier_status: str, wb_status: str) -> str:
     return "pending"
 
 
-def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
-    """Sync orders for a shop: fetch new + historical orders, then update statuses.
-    Returns the fetched product cards for reuse by other sync functions."""
-    api_token = decrypt_token(shop.api_token)
+# ── Helper functions ──────────────────────────────────────────────────────────
 
-    # Step 1: Fetch new orders (awaiting processing)
-    new_orders = fetch_new_orders(api_token)
 
-    # Step 2: Fetch historical orders (incremental from last sync)
-    # When last_sync_at is None (new shop or full sync), fetch 90 days of history
-    if shop.last_sync_at is None:
-        from datetime import timedelta
-        fbs_date_from = datetime.now(timezone.utc) - timedelta(days=90)
-    else:
-        fbs_date_from = shop.last_sync_at
-    historical_orders = fetch_orders(api_token, date_from=fbs_date_from)
-
-    # Step 2b: If there are zero-price orders, fetch older history to get their data
-    zero_price_count = db.query(Order).filter(
-        Order.shop_id == shop.id, Order.total_price == 0
-    ).count()
-    if zero_price_count > 0:
-        from datetime import timedelta
-        oldest_zero = db.query(Order).filter(
-            Order.shop_id == shop.id, Order.total_price == 0
-        ).order_by(Order.created_at.asc()).first()
-        if oldest_zero and oldest_zero.created_at:
-            backfill_from = oldest_zero.created_at - timedelta(hours=1)
-            backfill_orders = fetch_orders(api_token, date_from=backfill_from)
-            historical_orders.extend(backfill_orders)
-
-    # Merge all orders, deduplicate by id (new orders take priority — they have more price fields)
-    all_raw_orders = {}
-    for raw in historical_orders:
-        order_id = raw.get("id")
-        if order_id:
-            all_raw_orders[order_id] = raw
-    # New orders overwrite historical (they have salePrice, finalPrice etc.)
-    for raw in new_orders:
-        order_id = raw.get("id")
-        if order_id:
-            all_raw_orders[order_id] = raw
-
-    # Step 3: Build nmId → card info lookup from product cards
-    cards = fetch_cards(api_token)
+def _build_card_map(cards: list[dict]) -> dict:
+    """Build nmId → card info lookup from product cards."""
     nm_card_map = {}
     for card in cards:
         nm_id = card.get("nmID")
@@ -114,49 +71,211 @@ def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
                 "vendorCode": card.get("vendorCode", ""),
                 "photos": card.get("photos", []),
             }
+    return nm_card_map
 
-    # Step 4: Save/update orders
-    wb_order_ids = []
-    for wb_id, raw in all_raw_orders.items():
-        wb_order_id = str(wb_id)
-        wb_order_ids.append(wb_id)
 
-        # Parse price from WB API response
-        # WB returns multiple price fields: salePrice (actual sale price),
-        # finalPrice/convertedFinalPrice, price/convertedPrice (base price, often 0 for new orders)
-        rub_price_minor = (
-            raw.get("salePrice", 0)
-            or raw.get("finalPrice", 0)
-            or raw.get("price", 0)
-        )
-        price_rub_val = rub_price_minor / 100.0
-
-        converted_currency = raw.get("convertedCurrencyCode", 0)
-        if converted_currency and converted_currency != raw.get("currencyCode", 643):
-            # Cross-border: also has converted currency (CNY)
-            cny_price_minor = (
-                raw.get("convertedFinalPrice", 0)
-                or raw.get("convertedPrice", 0)
-            )
-            price = cny_price_minor / 100.0
-            currency = CURRENCY_MAP.get(converted_currency, "CNY")
+def _create_order_item(db: Session, order_id: int, shop_id: int,
+                       nm_id: int, product_name: str, sku: str,
+                       barcode: str, image_url: str, price: float,
+                       nm_card_map: dict):
+    """Create OrderItem and auto-create SkuMapping if needed."""
+    db.add(OrderItem(
+        order_id=order_id,
+        wb_product_id=str(nm_id),
+        product_name=product_name,
+        sku=sku,
+        barcode=barcode,
+        image_url=image_url,
+        quantity=1,
+        price=price,
+    ))
+    if sku:
+        existing_mapping = db.query(SkuMapping).filter(
+            SkuMapping.shop_id == shop_id, SkuMapping.shop_sku == sku
+        ).first()
+        if not existing_mapping:
+            db.add(SkuMapping(
+                shop_id=shop_id, shop_sku=sku,
+                wb_nm_id=str(nm_id) if nm_id else None,
+                wb_product_name=product_name, wb_image_url=image_url,
+                wb_barcode=barcode,
+            ))
         else:
-            # Local: RUB only
-            price = price_rub_val
-            currency = CURRENCY_MAP.get(raw.get("currencyCode", 643), "RUB")
+            if nm_id and not existing_mapping.wb_nm_id:
+                existing_mapping.wb_nm_id = str(nm_id)
+            if image_url and not existing_mapping.wb_image_url:
+                existing_mapping.wb_image_url = image_url
 
+
+def _parse_fbs_prices(raw: dict) -> tuple[float, float, str]:
+    """Parse price_rub, total_price, currency from a Marketplace API order.
+
+    WB returns prices in minor units (kopecks/fen).
+    Handles multi-currency: if order currency is not RUB but converted is RUB,
+    use converted price for price_rub.
+
+    Returns: (price_rub, total_price, currency)
+    """
+    # Prefer salePrice > finalPrice; avoid 'price' (undiscounted retail, can be wildly high)
+    sale_minor = raw.get("salePrice", 0) or 0
+    final_minor = raw.get("finalPrice", 0) or 0
+    original_minor = sale_minor or final_minor
+    converted_minor = (
+        raw.get("convertedFinalPrice", 0)
+        or raw.get("convertedPrice", 0)
+    )
+    order_currency = raw.get("currencyCode", 643)
+    converted_currency = raw.get("convertedCurrencyCode", 0)
+
+    if converted_currency and converted_currency != order_currency:
+        if converted_currency == 643:
+            # Order in foreign currency (e.g. CNY), converted to RUB
+            price_rub = converted_minor / 100.0
+            total_price = converted_minor / 100.0
+            currency = "RUB"
+        else:
+            # Order in RUB, converted to foreign (e.g. CNY for cross-border)
+            price_rub = original_minor / 100.0
+            total_price = converted_minor / 100.0
+            currency = CURRENCY_MAP.get(converted_currency, "CNY")
+            # Sanity check: RUB/CNY rate is ~12-14. If ratio > 20, price is unreliable
+            if total_price > 0 and price_rub > total_price * 20:
+                price_rub = 0  # let Statistics fallback handle it
+    else:
+        # Single currency
+        price_rub = original_minor / 100.0
+        total_price = original_minor / 100.0
+        currency = CURRENCY_MAP.get(order_currency, "RUB")
+
+    return price_rub, total_price, currency
+
+
+def _build_image_lookup(db: Session) -> tuple[dict, dict]:
+    """Build SKU/barcode → image_url lookup from existing data."""
+    sku_img = {}
+    barcode_img = {}
+    for sku_val, bc_val, img_val in db.query(
+        OrderItem.sku, OrderItem.barcode, OrderItem.image_url
+    ).filter(OrderItem.image_url != "").distinct().all():
+        if sku_val and sku_val not in sku_img:
+            sku_img[sku_val] = img_val
+        if bc_val and bc_val not in barcode_img:
+            barcode_img[bc_val] = img_val
+    for m in db.query(SkuMapping).filter(SkuMapping.wb_image_url != "").all():
+        if m.shop_sku and m.shop_sku not in sku_img:
+            sku_img[m.shop_sku] = m.wb_image_url
+        if m.wb_barcode and m.wb_barcode not in barcode_img:
+            barcode_img[m.wb_barcode] = m.wb_image_url
+    return sku_img, barcode_img
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+
+def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
+    """Sync orders for a shop. Returns product cards for reuse by other sync functions.
+
+    Flow:
+      1. Fetch shared data (cards, statistics)
+      2. Sync FBS orders from Marketplace API
+      3. Sync FBW orders from Statistics + Report Detail
+      4. Update FBS order statuses
+    """
+    api_token = decrypt_token(shop.api_token)
+
+    # 1. Fetch shared data
+    cards = fetch_cards(api_token)
+    nm_card_map = _build_card_map(cards)
+    stat_orders = fetch_statistics_orders(api_token)
+    stat_sales = fetch_statistics_sales(api_token)
+
+    # 2. Sync FBS orders
+    _sync_fbs_orders(db, shop, api_token, nm_card_map, stat_orders)
+
+    # 3. Sync FBW orders
+    _sync_fbw_orders(db, shop, api_token, nm_card_map, stat_orders, stat_sales)
+
+    # 4. Update statuses for active FBS orders
+    terminal_statuses = ("completed", "cancelled", "returned", "rejected")
+    active_orders = db.query(Order).filter(
+        Order.shop_id == shop.id,
+        Order.order_type == "FBS",
+        ~Order.status.in_(terminal_statuses),
+    ).all()
+    active_wb_ids = [int(o.wb_order_id) for o in active_orders if o.wb_order_id.isdigit()]
+    if active_wb_ids:
+        active_lookup = {o.wb_order_id: o for o in active_orders}
+        _update_order_statuses(db, active_lookup, api_token, active_wb_ids)
+
+    shop.last_sync_at = datetime.now(timezone.utc)
+    db.commit()
+    return cards
+
+
+# ── FBS sync ──────────────────────────────────────────────────────────────────
+
+
+def _sync_fbs_orders(db: Session, shop: Shop, api_token: str,
+                     nm_card_map: dict, stat_orders: list[dict]):
+    """Sync FBS orders from Marketplace API (90 days).
+
+    Price is resolved at insert time:
+      1. From Marketplace API (salePrice/convertedFinalPrice)
+      2. Fallback: from Statistics Orders (by srid match)
+    """
+    # Fetch FBS orders from Marketplace API
+    fbs_date_from = datetime.now(timezone.utc) - timedelta(days=90)
+    historical = fetch_orders(api_token, date_from=fbs_date_from)
+    new_orders = fetch_new_orders(api_token)
+
+    # Merge: deduplicate by id, new orders take priority
+    all_raw = {}
+    for raw in historical:
+        oid = raw.get("id")
+        if oid:
+            all_raw[oid] = raw
+    for raw in new_orders:
+        oid = raw.get("id")
+        if oid:
+            all_raw[oid] = raw
+
+    # Build srid → Statistics lookup for price fallback
+    stat_by_srid = {}
+    for o in stat_orders:
+        srid = o.get("srid", "")
+        if srid:
+            stat_by_srid[srid] = o
+
+    created = 0
+    updated = 0
+
+    for wb_id, raw in all_raw.items():
+        wb_order_id = str(wb_id)
+        rid = raw.get("rid", "")
+
+        # Parse prices
+        price_rub, total_price, currency = _parse_fbs_prices(raw)
+
+        # Fallback: if price_rub is 0, try Statistics by srid
+        if price_rub == 0 and rid:
+            stat = stat_by_srid.get(rid)
+            if stat:
+                price_rub = float(stat.get("priceWithDisc", 0) or stat.get("finishedPrice", 0) or 0)
+                if total_price == 0:
+                    total_price = price_rub
+
+        # Product info
         nm_id = raw.get("nmId", 0)
-        article = raw.get("article", "")  # 卖家商品编码 (seller article)
-        skus = raw.get("skus", [])  # 条形码 (barcodes)
+        article = raw.get("article", "")
+        skus = raw.get("skus", [])
         barcode = skus[0] if skus else ""
         card_info = nm_card_map.get(nm_id, {})
         product_name = card_info.get("name", article)
         sku = article or card_info.get("vendorCode", "") or barcode
-        # Get product thumbnail from card photos
         photos = card_info.get("photos", [])
         image_url = photos[0].get("c246x328", "") if photos else ""
 
-        # Parse created time from API
+        # Parse created time
         created_at_str = raw.get("createdAt", "")
         order_created = None
         if created_at_str:
@@ -165,181 +284,124 @@ def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
             except (ValueError, AttributeError):
                 pass
 
-        existing = db.query(Order).filter(Order.wb_order_id == wb_order_id).first()
+        # Check if exists
+        existing = db.query(Order).filter(
+            Order.shop_id == shop.id, Order.wb_order_id == wb_order_id
+        ).first()
         if existing:
-            # Update price if it was 0 and we now have a real price
-            if existing.total_price == 0 and price > 0:
-                existing.total_price = price
+            changed = False
+            if existing.price_rub == 0 and price_rub > 0:
+                existing.price_rub = price_rub
+                changed = True
+            if existing.total_price == 0 and total_price > 0:
+                existing.total_price = total_price
                 existing.currency = currency
-                existing.updated_at = datetime.now(timezone.utc)
-            # Fill price_rub from API RUB price
-            if existing.price_rub == 0 and price_rub_val > 0:
-                existing.price_rub = price_rub_val
-
-            # Fix created_at if it differs from API time (was stored as sync time)
+                changed = True
+            if rid and not existing.srid:
+                existing.srid = rid
+                changed = True
             if order_created and existing.created_at:
                 api_time = order_created.replace(tzinfo=None)
-                diff = abs((api_time - existing.created_at).total_seconds())
-                if diff > 5:
+                if abs((api_time - existing.created_at).total_seconds()) > 5:
                     existing.created_at = api_time
-
-            # Backfill missing image_url on existing items
+                    changed = True
             if image_url:
-                existing_item = db.query(OrderItem).filter(
+                item = db.query(OrderItem).filter(
                     OrderItem.order_id == existing.id, OrderItem.image_url == ""
                 ).first()
-                if existing_item:
-                    existing_item.image_url = image_url
+                if item:
+                    item.image_url = image_url
+            if not db.query(OrderItem).filter(OrderItem.order_id == existing.id).count():
+                _create_order_item(db, existing.id, shop.id, nm_id, product_name,
+                                   sku, barcode, image_url, total_price, nm_card_map)
+            if changed:
+                existing.updated_at = datetime.now(timezone.utc)
+                updated += 1
+            continue
 
-            # Backfill missing OrderItems
-            has_items = db.query(OrderItem).filter(OrderItem.order_id == existing.id).count()
-            if not has_items and nm_id:
-                item = OrderItem(
-                    order_id=existing.id,
-                    wb_product_id=str(nm_id),
-                    product_name=product_name,
-                    sku=sku,
-                    barcode=barcode,
-                    image_url=image_url,
-                    quantity=1,
-                    price=price,
-                )
-                db.add(item)
-
-                # Auto-create SKU mapping for backfilled items
-                if sku:
-                    existing_mapping = db.query(SkuMapping).filter(
-                        SkuMapping.shop_id == shop.id, SkuMapping.shop_sku == sku
-                    ).first()
-                    if not existing_mapping:
-                        mapping = SkuMapping(
-                            shop_id=shop.id, shop_sku=sku,
-                            wb_nm_id=str(nm_id) if nm_id else None,
-                            wb_product_name=product_name, wb_image_url=image_url,
-                            wb_barcode=barcode,
-                        )
-                        db.add(mapping)
-                    else:
-                        if nm_id and not existing_mapping.wb_nm_id:
-                            existing_mapping.wb_nm_id = str(nm_id)
-                        if image_url and not existing_mapping.wb_image_url:
-                            existing_mapping.wb_image_url = image_url
-
-            continue  # Status update handled in batch below
-
-        warehouse_id = raw.get("warehouseId", 0)
-
-        # Determine order type from deliveryType field
-        delivery_type = raw.get("deliveryType", "fbs")
-        order_type = delivery_type.upper() if delivery_type else "FBS"
-
+        # Create new order
         order = Order(
             wb_order_id=wb_order_id,
+            srid=rid,
             shop_id=shop.id,
-            order_type=order_type,
+            order_type="FBS",
             status="pending",
-            total_price=price,
-            price_rub=price_rub_val,
+            total_price=total_price,
+            price_rub=price_rub,
             currency=currency,
-            warehouse_name=str(warehouse_id),
-            created_at=order_created or datetime.now(timezone.utc),
+            warehouse_name=str(raw.get("warehouseId", 0)),
+            created_at=(order_created.replace(tzinfo=None) if order_created else None)
+                      or datetime.utcnow(),
         )
         db.add(order)
         db.flush()
 
-        # Initial status log
-        log = OrderStatusLog(
-            order_id=order.id,
-            status="pending",
-            wb_status="new",
-        )
-        db.add(log)
+        db.add(OrderStatusLog(order_id=order.id, status="pending", wb_status="new"))
+        _create_order_item(db, order.id, shop.id, nm_id, product_name,
+                           sku, barcode, image_url, total_price, nm_card_map)
+        created += 1
+        if created % 500 == 0:
+            db.flush()
 
-        # Each WB order = one item (one SKU per order)
-        item = OrderItem(
-            order_id=order.id,
-            wb_product_id=str(nm_id),
-            product_name=product_name,
-            sku=sku,
-            barcode=barcode,
-            image_url=image_url,
-            quantity=1,
-            price=price,
-        )
-        db.add(item)
-
-        # Auto-create SKU mapping if not exists
-        if sku:
-            existing_mapping = db.query(SkuMapping).filter(
-                SkuMapping.shop_id == shop.id, SkuMapping.shop_sku == sku
-            ).first()
-            if not existing_mapping:
-                mapping = SkuMapping(
-                    shop_id=shop.id,
-                    shop_sku=sku,
-                    wb_nm_id=str(nm_id) if nm_id else None,
-                    wb_product_name=product_name,
-                    wb_image_url=image_url,
-                    wb_barcode=barcode,
-                )
-                db.add(mapping)
-            else:
-                if nm_id and not existing_mapping.wb_nm_id:
-                    existing_mapping.wb_nm_id = str(nm_id)
-                if image_url and not existing_mapping.wb_image_url:
-                    existing_mapping.wb_image_url = image_url
-
-    # Step 5: Fetch FBW/FBO orders from Statistics API
-    # The Marketplace API (/api/v3/orders) only returns FBS orders.
-    # FBW (FBO) orders must be fetched from the Statistics API.
-    _sync_fbo_orders(db, shop, api_token, nm_card_map)
-
-    # Step 6: Update statuses for all non-terminal orders (not just current batch)
-    terminal_statuses = ("completed", "cancelled", "returned", "rejected")
-    active_orders = db.query(Order).filter(
-        Order.shop_id == shop.id,
-        ~Order.status.in_(terminal_statuses),
-    ).all()
-    active_wb_ids = [int(o.wb_order_id) for o in active_orders if o.wb_order_id.isdigit()]
-    if active_wb_ids:
-        _update_order_statuses(db, shop.id, api_token, active_wb_ids)
-
-    # Step 7: Backfill prices for orders with price=0 using Statistics API
-    _backfill_order_prices(db, shop.id, api_token)
-
-    # Step 8: Update RUB prices for all orders
-    _update_order_rub_prices(db, shop.id, api_token)
-
-    shop.last_sync_at = datetime.now(timezone.utc)
-    db.commit()
-    return cards
+    print(f"[Sync] FBS: created {created}, updated {updated} for shop {shop.id}")
 
 
-def _sync_fbo_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict):
-    """Sync FBW/FBO orders using two data sources:
+# ── FBW sync ──────────────────────────────────────────────────────────────────
 
-    1. Statistics Orders API — has warehouseType to reliably identify FBW orders.
-       Limited to ~140 recent records but provides definitive FBS/FBW classification.
-    2. Report Detail API — comprehensive settled order data.
-       Contains both FBS and FBW without a direct type field.
-       We exclude FBS orders by matching against existing Marketplace FBS orders
-       using (nmId, order_date) combinations.
+
+def _sync_fbw_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict,
+                     stat_orders: list[dict], stat_sales: list[dict]):
+    """Sync FBW orders from triple data sources.
+
+    Source priority: Statistics Orders > Statistics Sales > Report Detail.
+    All merged by srid into a single dict before writing to DB.
     """
-    all_fbo_records = []  # list of normalized dicts
-    seen_srids = set()
+    import re
+    from collections import defaultdict
 
-    # Source 1: Statistics Orders API — reliable FBW identification
-    stat_orders = fetch_statistics_orders(api_token)
-    stat_fbo_srids = set()
+    HEX_SRID_RE = re.compile(r"[ri][0-9a-f]{20,}", re.I)
+
+    # Pre-load existing data
+    existing_fbo = db.query(Order).filter(
+        Order.shop_id == shop.id, Order.wb_order_id.like("fbo_%")
+    ).all()
+    existing_by_wb_id = {o.wb_order_id: o for o in existing_fbo}
+    existing_by_srid = {o.srid: o for o in existing_fbo if o.srid}
+
+    # (nm_id, date) index for numeric→hex srid dedup
+    fbo_item_nm = {}
+    if existing_fbo:
+        for row in db.query(OrderItem.order_id, OrderItem.wb_product_id).filter(
+            OrderItem.order_id.in_([o.id for o in existing_fbo])
+        ).all():
+            fbo_item_nm[row[0]] = row[1]
+    existing_by_nm_date = {}
+    for o in existing_fbo:
+        nm_str = fbo_item_nm.get(o.id, "")
+        if nm_str and o.created_at:
+            existing_by_nm_date[(nm_str, o.created_at.strftime("%Y-%m-%d"))] = o
+
+    # FBS srids set (to exclude FBS from FBW sources)
+    fbs_srids = set(
+        r[0] for r in db.query(Order.srid).filter(
+            Order.shop_id == shop.id,
+            ~Order.wb_order_id.like("fbo_%"),
+            Order.srid != "",
+        ).all()
+    )
+
+    # ── Collect FBW records from all sources into fbw_records[srid] ──
+
+    fbw_records = {}  # srid → record dict
+
+    # Source 1: Statistics Orders (highest priority, clear warehouseType)
     for o in stat_orders:
         if "WB" not in o.get("warehouseType", ""):
             continue
         srid = o.get("srid", "")
-        if not srid or srid in seen_srids:
+        if not srid or srid in fbs_srids:
             continue
-        seen_srids.add(srid)
-        stat_fbo_srids.add(srid)
-        all_fbo_records.append({
+        fbw_records[srid] = {
             "srid": srid,
             "order_dt": o.get("date", ""),
             "sale_dt": "",
@@ -351,104 +413,166 @@ def _sync_fbo_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict)
             "warehouse": o.get("warehouseName", ""),
             "is_cancel": o.get("isCancel", False),
             "source": "statistics",
-        })
+        }
 
-    # Source 2: Report Detail API — settled historical orders
-    fbw_count = db.query(Order).filter(
-        Order.shop_id == shop.id, Order.order_type == "FBW"
-    ).count()
+    # Source 2: Statistics Sales — price supplement ONLY.
+    # Sales API `date` is delivery date, NOT order date.
+    # We do NOT create new orders from Sales (no real order date available).
+    # Only update price on orders already found in Statistics Orders.
+    sales_price_updates = 0
+    for s in stat_sales:
+        if "WB" not in s.get("warehouseType", ""):
+            continue
+        srid = s.get("srid", "")
+        if not srid or srid in fbs_srids:
+            continue
+        price = float(s.get("priceWithDisc", 0) or s.get("finishedPrice", 0) or 0)
+        if srid in fbw_records and fbw_records[srid]["price"] == 0 and price > 0:
+            fbw_records[srid]["price"] = price
+            sales_price_updates += 1
+    print(f"[Sync] Sales: {sales_price_updates} FBW price updates for shop {shop.id}")
 
-    if fbw_count == 0:
-        sync_from = datetime.now(timezone.utc) - timedelta(days=90)
-    elif shop.last_sync_at:
-        sync_from = shop.last_sync_at - timedelta(days=7)
-    else:
-        sync_from = datetime.now(timezone.utc) - timedelta(days=90)
-
-    date_from = sync_from.strftime("%Y-%m-%d")
+    # Source 3: Report Detail (fills 20-90 day gap)
+    date_from = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
     date_to = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
     report_data = fetch_report_detail(api_token, date_from, date_to)
+    print(f"[Sync] Report Detail: {len(report_data)} records for shop {shop.id}")
 
-    # Report Detail API contains both FBS and FBW records, but each has a unique srid.
-    # We use fbo_{srid} as wb_order_id which never collides with Marketplace FBS IDs
-    # (which are plain numbers). So no deduplication against FBS is needed —
-    # the unique wb_order_id check in the insert loop handles it.
-
+    # Group by srid
+    srid_groups = defaultdict(list)
     for r in report_data:
         srid = r.get("srid", "")
-        qty = r.get("quantity", 0)
-        price_rub = r.get("retail_price_withdisc_rub", 0) or 0
-        if not srid or qty <= 0 or srid in seen_srids:
+        if srid:
+            srid_groups[srid].append(r)
+
+    for srid, records in srid_groups.items():
+        if srid in fbs_srids or srid in fbw_records:
             continue
 
-        # Skip fee/logistics records: they have quantity>0 but price=0
-        # Real sales have retail_price_withdisc_rub > 0
-        if price_rub <= 0:
+        # Classify FBS vs FBW:
+        # 1. delivery_method (explicit FBS/FBW label)
+        # 2. assembly_id (FBS has non-zero assembly_id)
+        # 3. FBS fingerprint: (nm_id, order_date) matching existing FBS orders
+        dm_values = {r.get("delivery_method", "") for r in records} - {""}
+        is_fbs = any("FBS" in d.upper() for d in dm_values)
+        if not is_fbs:
+            has_assembly = any(r.get("assembly_id", 0) not in (0, None) for r in records)
+            if has_assembly:
+                is_fbs = True
+        if is_fbs:
             continue
 
-        seen_srids.add(srid)
-        all_fbo_records.append({
+        # Find best record: qty > 0 AND price > 0 (real sale, not logistics fee)
+        best = None
+        for r in records:
+            if r.get("quantity", 0) > 0 and (r.get("retail_price_withdisc_rub", 0) or 0) > 0:
+                best = r
+                break
+
+        if not best:
+            # Accept if delivery_method explicitly says FBW (even without price)
+            if any("FBW" in d.upper() or "FBO" in d.upper() for d in dm_values):
+                for r in records:
+                    if r.get("nm_id", 0) > 0:
+                        best = r
+                        break
+            if not best:
+                continue
+
+        # Aggregate product info
+        nm_id = best.get("nm_id", 0)
+        if not nm_id:
+            for r in records:
+                if r.get("nm_id", 0) > 0:
+                    nm_id = r["nm_id"]
+                    break
+        article = best.get("sa_name", "")
+        if not article:
+            for r in records:
+                if r.get("sa_name", ""):
+                    article = r["sa_name"]
+                    break
+
+        # Extract best price across all records for this srid
+        price = float(best.get("retail_price_withdisc_rub", 0) or 0)
+        if price == 0:
+            for r in records:
+                p = float(r.get("retail_price_withdisc_rub", 0) or 0)
+                if p > 0:
+                    price = p
+                    break
+
+        fbw_records[srid] = {
             "srid": srid,
-            "order_dt": r.get("order_dt", ""),
-            "sale_dt": r.get("sale_dt", ""),
-            "nm_id": r.get("nm_id", 0),
-            "article": r.get("sa_name", ""),
-            "barcode": r.get("barcode", ""),
-            "product_name": r.get("subject_name", ""),
-            "price": float(r.get("retail_price_withdisc_rub", 0) or 0),
-            "warehouse": r.get("office_name", ""),
+            "order_dt": best.get("order_dt", ""),
+            "sale_dt": best.get("sale_dt", ""),
+            "nm_id": nm_id,
+            "article": article,
+            "barcode": best.get("barcode", ""),
+            "product_name": best.get("subject_name", ""),
+            "price": price,
+            "warehouse": best.get("office_name", ""),
             "is_cancel": False,
             "source": "report",
-        })
+        }
 
-    if not all_fbo_records:
+    print(f"[Sync] FBW candidates: {len(fbw_records)} for shop {shop.id}")
+
+    if not fbw_records:
         return
 
-    # Build SKU/barcode → image lookup from existing OrderItems for fallback
-    sku_img_map = {}
-    barcode_img_map = {}
-    img_items = db.query(OrderItem.sku, OrderItem.barcode, OrderItem.image_url).filter(
-        OrderItem.image_url != ""
-    ).distinct().all()
-    for sku_val, bc_val, img_val in img_items:
-        if sku_val and sku_val not in sku_img_map:
-            sku_img_map[sku_val] = img_val
-        if bc_val and bc_val not in barcode_img_map:
-            barcode_img_map[bc_val] = img_val
+    # ── Write to DB ──
 
-    # Also from SkuMappings
-    mappings = db.query(SkuMapping).filter(SkuMapping.wb_image_url != "").all()
-    for m in mappings:
-        if m.shop_sku and m.shop_sku not in sku_img_map:
-            sku_img_map[m.shop_sku] = m.wb_image_url
-        if m.wb_barcode and m.wb_barcode not in barcode_img_map:
-            barcode_img_map[m.wb_barcode] = m.wb_image_url
-
+    sku_img, barcode_img = _build_image_lookup(db)
     created = 0
-    for rec in all_fbo_records:
-        srid = rec["srid"]
+    updated_srid = 0
+
+    for srid, rec in fbw_records.items():
         wb_order_id = f"fbo_{srid}"
 
-        existing = db.query(Order).filter(Order.wb_order_id == wb_order_id).first()
+        # Existing by wb_order_id → update price if needed
+        existing = existing_by_wb_id.get(wb_order_id)
         if existing:
             if existing.total_price == 0 and rec["price"] > 0:
                 existing.total_price = rec["price"]
                 existing.price_rub = rec["price"]
                 existing.updated_at = datetime.now(timezone.utc)
+            if srid and not existing.srid:
+                existing.srid = srid
             continue
 
-        # Parse order date
+        # Existing by srid
+        if srid in existing_by_srid:
+            continue
+
+        # Dedup by (nm_id, order_date) — catches matches across different srid formats
+        # (Report Detail srids differ from Statistics srids for the same order)
+        if rec["source"] == "report" and rec["nm_id"] and rec["order_dt"]:
+            dup_key = (str(rec["nm_id"]), rec["order_dt"][:10])
+            dup_order = existing_by_nm_date.get(dup_key)
+            if dup_order:
+                # Update price on existing order if needed
+                if dup_order.total_price == 0 and rec["price"] > 0:
+                    dup_order.total_price = rec["price"]
+                    dup_order.price_rub = rec["price"]
+                    dup_order.updated_at = datetime.now(timezone.utc)
+                updated_srid += 1
+                continue
+
+        # Parse order date — Statistics/Report Detail return Moscow time (UTC+3)
         order_created = None
-        date_str = rec["order_dt"]
-        if date_str:
+        if rec["order_dt"]:
             try:
-                order_created = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                MSK = timezone(timedelta(hours=3))
+                dt = datetime.fromisoformat(rec["order_dt"].replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    # Bare datetime from Statistics API = Moscow time
+                    dt = dt.replace(tzinfo=MSK)
+                order_created = dt.astimezone(timezone.utc).replace(tzinfo=None)
             except (ValueError, AttributeError):
                 pass
 
         status = "cancelled" if rec["is_cancel"] else ("completed" if rec["sale_dt"] else "pending")
-        price = rec["price"]
         nm_id = rec["nm_id"]
         article = rec["article"]
         barcode = rec["barcode"]
@@ -457,58 +581,43 @@ def _sync_fbo_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict)
         sku = article or card_info.get("vendorCode", "") or barcode
         photos = card_info.get("photos", [])
         image_url = photos[0].get("c246x328", "") if photos else ""
-
-        # Fallback: look up image from existing items by SKU or barcode
         if not image_url:
-            image_url = sku_img_map.get(sku, "") or barcode_img_map.get(barcode, "")
+            image_url = sku_img.get(sku, "") or barcode_img.get(barcode, "")
 
         order = Order(
             wb_order_id=wb_order_id,
+            srid=srid,
             shop_id=shop.id,
             order_type="FBW",
             status=status,
-            total_price=price,
-            price_rub=price,
+            total_price=rec["price"],
+            price_rub=rec["price"],
             currency="RUB",
             warehouse_name=rec["warehouse"],
-            created_at=order_created or datetime.now(timezone.utc),
+            created_at=order_created or datetime.utcnow(),
         )
         db.add(order)
         db.flush()
 
+        existing_by_wb_id[wb_order_id] = order
+        existing_by_srid[srid] = order
+
         db.add(OrderStatusLog(
-            order_id=order.id, status=status,
-            wb_status=f"fbo_{rec['source']}",
+            order_id=order.id, status=status, wb_status=f"fbo_{rec['source']}",
         ))
-
-        db.add(OrderItem(
-            order_id=order.id,
-            wb_product_id=str(nm_id),
-            product_name=product_name,
-            sku=sku, barcode=barcode,
-            image_url=image_url,
-            quantity=1, price=price,
-        ))
-
-        if sku:
-            existing_mapping = db.query(SkuMapping).filter(
-                SkuMapping.shop_id == shop.id, SkuMapping.shop_sku == sku
-            ).first()
-            if not existing_mapping:
-                db.add(SkuMapping(
-                    shop_id=shop.id, shop_sku=sku,
-                    wb_nm_id=str(nm_id) if nm_id else None,
-                    wb_product_name=product_name, wb_image_url=image_url,
-                    wb_barcode=barcode,
-                ))
-
+        _create_order_item(db, order.id, shop.id, nm_id, product_name,
+                           sku, barcode, image_url, rec["price"], nm_card_map)
         created += 1
+        if created % 500 == 0:
+            db.flush()
 
-    if created:
-        print(f"[Sync] Created {created} FBO/FBW orders for shop {shop.id}")
+    print(f"[Sync] FBW: created {created}, updated srid {updated_srid} for shop {shop.id}")
 
 
-def _update_order_statuses(db: Session, shop_id: int, api_token: str, wb_order_ids: list[int]):
+# ── Status update ─────────────────────────────────────────────────────────────
+
+
+def _update_order_statuses(db: Session, active_lookup: dict, api_token: str, wb_order_ids: list[int]):
     """Batch query and update order statuses from WB API."""
     statuses = fetch_order_statuses(api_token, wb_order_ids)
 
@@ -517,9 +626,7 @@ def _update_order_statuses(db: Session, shop_id: int, api_token: str, wb_order_i
         supplier_status = status_info.get("supplierStatus", "")
         wb_status = status_info.get("wbStatus", "")
 
-        order = db.query(Order).filter(
-            Order.shop_id == shop_id, Order.wb_order_id == wb_id
-        ).first()
+        order = active_lookup.get(wb_id)
         if not order:
             continue
 
@@ -535,170 +642,7 @@ def _update_order_statuses(db: Session, shop_id: int, api_token: str, wb_order_i
             db.add(log)
 
 
-def _backfill_order_prices(db: Session, shop_id: int, api_token: str):
-    """Use Statistics API to fill in prices for orders where total_price=0.
-
-    The Marketplace orders API often returns price=0 for new orders.
-    The Statistics API (GET /api/v1/supplier/orders) provides actual prices:
-    totalPrice, priceWithDisc, finishedPrice, spp, etc.
-    Statistics data is linked via srid (unique order identifier) or nmId+date.
-    """
-    # Find orders with price=0 for this shop
-    zero_price_orders = db.query(Order).filter(
-        Order.shop_id == shop_id, Order.total_price == 0
-    ).all()
-
-    if not zero_price_orders:
-        return
-
-    # Fetch statistics orders (last 90 days max)
-    stat_orders = fetch_statistics_orders(api_token)
-    if not stat_orders:
-        return
-
-    # Build lookup: srid → stats data (srid is the unique order identifier)
-    # Also build wb_order_id (mapped from orderType + srid) for matching
-    # Statistics API uses "srid" as unique key; Marketplace API uses "id"
-    # We match by checking if the srid starts with the order id pattern
-    # or by matching nmId + date combination
-
-    # Build lookup by srid (which often contains the marketplace order id)
-    srid_map = {}
-    for stat in stat_orders:
-        srid = stat.get("srid", "")
-        if srid:
-            srid_map[srid] = stat
-
-    # Also build a lookup by gNumber (group number links related order items)
-    gnumber_map = {}
-    for stat in stat_orders:
-        gn = stat.get("gNumber", "")
-        if gn:
-            if gn not in gnumber_map:
-                gnumber_map[gn] = stat
-
-    updated = 0
-    for order in zero_price_orders:
-        wb_id = order.wb_order_id
-        best_match = None
-
-        # Try to find by srid containing the order id
-        for srid, stat in srid_map.items():
-            if wb_id in srid or srid.startswith(wb_id):
-                best_match = stat
-                break
-
-        # Fallback: match by nmId + approximate date via order items
-        if not best_match:
-            items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
-            for item in items:
-                nm_id = item.wb_product_id
-                for stat in stat_orders:
-                    if str(stat.get("nmId", "")) == nm_id:
-                        stat_date = stat.get("date", "")
-                        if stat_date and order.created_at:
-                            try:
-                                sd = datetime.fromisoformat(stat_date.replace("Z", "+00:00"))
-                                diff = abs((sd - order.created_at).total_seconds())
-                                if diff < 86400:  # Within 24 hours
-                                    best_match = stat
-                                    break
-                            except (ValueError, TypeError):
-                                continue
-                if best_match:
-                    break
-
-        if best_match:
-            # priceWithDisc is the actual price customer pays (in rubles, not kopecks)
-            new_price = best_match.get("priceWithDisc", 0) or best_match.get("finishedPrice", 0) or best_match.get("totalPrice", 0)
-            if new_price and new_price > 0:
-                order.total_price = float(new_price)
-                order.updated_at = datetime.now(timezone.utc)
-
-                # Also update order item price
-                item = db.query(OrderItem).filter(OrderItem.order_id == order.id).first()
-                if item:
-                    item.price = float(new_price)
-                    # Fill commission and logistics if available
-                    spp = best_match.get("spp", 0)
-                    if spp:
-                        item.commission = float(abs(spp))
-
-                updated += 1
-
-    if updated:
-        print(f"[Sync] Backfilled prices for {updated} orders in shop {shop_id}")
-
-
-def _update_order_rub_prices(db: Session, shop_id: int, api_token: str):
-    """Update price_rub for all orders using finishedPrice from Statistics API."""
-    # First: fix orders where currency is already RUB but price_rub was not set
-    rub_fixed = 0
-    rub_orders = db.query(Order).filter(
-        Order.shop_id == shop_id, Order.price_rub == 0,
-        Order.currency == "RUB", Order.total_price > 0
-    ).all()
-    for o in rub_orders:
-        o.price_rub = o.total_price
-        rub_fixed += 1
-    if rub_fixed:
-        db.flush()
-        print(f"[Sync] Fixed {rub_fixed} RUB orders with missing price_rub in shop {shop_id}")
-
-    # Then: fetch from Statistics API for remaining zero-price orders
-    orders = db.query(Order).filter(
-        Order.shop_id == shop_id, Order.price_rub == 0
-    ).all()
-    if not orders:
-        return
-
-    stat_orders = fetch_statistics_orders(api_token)
-    if not stat_orders:
-        return
-
-    # Build srid lookup
-    srid_map = {}
-    for stat in stat_orders:
-        srid = stat.get("srid", "")
-        if srid:
-            srid_map[srid] = stat
-
-    updated = 0
-    for order in orders:
-        wb_id = order.wb_order_id
-        best_match = None
-        for srid, stat in srid_map.items():
-            if wb_id in srid or srid.startswith(wb_id):
-                best_match = stat
-                break
-
-        if not best_match:
-            items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
-            for item in items:
-                nm_id = item.wb_product_id
-                for stat in stat_orders:
-                    if str(stat.get("nmId", "")) == nm_id:
-                        stat_date = stat.get("date", "")
-                        if stat_date and order.created_at:
-                            try:
-                                sd = datetime.fromisoformat(stat_date.replace("Z", "+00:00"))
-                                diff = abs((sd - order.created_at).total_seconds())
-                                if diff < 86400:
-                                    best_match = stat
-                                    break
-                            except (ValueError, TypeError):
-                                continue
-                if best_match:
-                    break
-
-        if best_match:
-            rub_price = best_match.get("finishedPrice", 0) or best_match.get("priceWithDisc", 0)
-            if rub_price and rub_price > 0:
-                order.price_rub = float(rub_price)
-                updated += 1
-
-    if updated:
-        print(f"[Sync] Updated RUB prices for {updated} orders in shop {shop_id}")
+# ── Inventory sync ────────────────────────────────────────────────────────────
 
 
 def sync_shop_inventory(db: Session, shop: Shop):
@@ -749,12 +693,7 @@ def sync_shop_inventory(db: Session, shop: Shop):
             # FBS warehouses are seller's own warehouses (from /api/v3/warehouses)
             sku_stocks[sku]["fbs"] += amount
 
-    # Step 4: Also try to get FBW stock from WB warehouses (office stock)
-    # FBW stock comes from a different source — the seller can check it
-    # via the statistics API or supplies API. For now we track FBS stock
-    # from the seller's warehouses.
-
-    # Step 5: Update inventory records
+    # Step 4: Update inventory records
     for sku, data in sku_stocks.items():
         inv = db.query(Inventory).filter(
             Inventory.shop_id == shop.id, Inventory.sku == sku
@@ -850,17 +789,12 @@ def sync_shop_ads(db: Session, shop: Shop, cards: list[dict] | None = None):
                 pass
 
         # Status correction using budget (most reliable signal).
-        # WB API statuses are unreliable — paused and archived are indistinguishable.
-        # Strategy: budget > 0 → active (7), everything else non-active → paused (9).
         budget_info = budgets.get(wb_id, {})
         budget_total = budget_info.get("total", 0) or 0
         if budget_total > 0 and ad_status != 7:
-            # Has budget → actually active
             print(f"[Sync] Campaign {wb_id}: status={ad_status} but budget={budget_total}, marking as active (7)")
             ad_status = 7
         elif ad_status in (7, 11) and budget_total == 0:
-            # No budget and API says active or archived → treat as paused (9)
-            # WB can't distinguish paused from archived, so we merge them as "已暂停"
             if ad_status == 7:
                 print(f"[Sync] Campaign {wb_id}: status=7 but budget=0, marking as paused (9)")
             ad_status = 9
@@ -914,7 +848,6 @@ def sync_shop_ads(db: Session, shop: Shop, cards: list[dict] | None = None):
     raw_stats = fetch_ad_fullstats(api_token, stat_campaign_ids, date_from, date_to)
 
     # Step 4: Parse and upsert daily stats
-    # v3 structure: {advertId, days: [{date, apps: [{appType, nms: [{nmId, ...}]}]}]}
     for entry in raw_stats:
         wb_advert_id = entry.get("advertId")
         campaign = campaign_map.get(wb_advert_id)
@@ -931,7 +864,7 @@ def sync_shop_ads(db: Session, shop: Shop, cards: list[dict] | None = None):
                 continue
 
             # Aggregate across all app types per nm_id per day
-            nm_agg = {}  # nm_id → aggregated stats
+            nm_agg = {}
             for app_data in day_data.get("apps", []):
                 for nm_data in app_data.get("nms", []):
                     nm_id = nm_data.get("nmId", 0)
@@ -993,7 +926,6 @@ def sync_shop_ads(db: Session, shop: Shop, cards: list[dict] | None = None):
     db.commit()
 
     # Step 5: Backfill wb_nm_id in SkuMapping using product cards (best-effort)
-    # Reuse cards passed from sync_shop_orders to avoid duplicate API calls
     if cards:
         try:
             all_ad_nm_ids = set()

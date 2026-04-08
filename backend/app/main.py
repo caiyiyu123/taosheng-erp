@@ -50,6 +50,11 @@ try:
             if "wb_image_url" not in sku_cols:
                 conn.execute(text("ALTER TABLE sku_mappings ADD COLUMN wb_image_url VARCHAR(500) DEFAULT ''"))
             conn.commit()
+        if "orders" in inspector.get_table_names():
+            order_cols = {c["name"] for c in inspector.get_columns("orders")}
+            if "srid" not in order_cols:
+                conn.execute(text("ALTER TABLE orders ADD COLUMN srid VARCHAR(200) DEFAULT ''"))
+            conn.commit()
         if "shop_products" in inspector.get_table_names():
             sp_cols = {c["name"] for c in inspector.get_columns("shop_products")}
             if "price" not in sp_cols:

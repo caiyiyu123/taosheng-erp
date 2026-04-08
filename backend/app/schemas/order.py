@@ -31,6 +31,7 @@ class OrderStatusLogOut(BaseModel):
 class OrderOut(BaseModel):
     id: int
     wb_order_id: str
+    srid: str = ""
     shop_id: int
     order_type: str
     status: str
