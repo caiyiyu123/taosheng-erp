@@ -190,12 +190,21 @@ def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
     stat_sales = fetch_statistics_sales(api_token)
 
     # 2. Sync FBS orders
-    _sync_fbs_orders(db, shop, api_token, nm_card_map, stat_orders)
+    _sync_fbs_orders(db, shop, api_token, nm_card_map, stat_orders, stat_sales)
 
-    # 3. Sync FBW orders
-    _sync_fbw_orders(db, shop, api_token, nm_card_map, stat_orders, stat_sales)
+    # 3. Fetch Report Detail (shared by FBW sync and FBS price fill)
+    rd_date_from = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
+    rd_date_to = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    report_data = fetch_report_detail(api_token, rd_date_from, rd_date_to)
+    print(f"[Sync] Report Detail: {len(report_data)} records for shop {shop.id}")
 
-    # 4. Update statuses for active FBS orders
+    # 4. Sync FBW orders
+    _sync_fbw_orders(db, shop, api_token, nm_card_map, stat_orders, stat_sales, report_data)
+
+    # 5. Fill FBS prices from Report Detail (Marketplace API often returns 0 for old orders)
+    _fill_fbs_prices_from_report(db, shop, report_data)
+
+    # 6. Update statuses for active FBS orders
     terminal_statuses = ("completed", "cancelled", "returned", "rejected")
     active_orders = db.query(Order).filter(
         Order.shop_id == shop.id,
@@ -216,12 +225,14 @@ def sync_shop_orders(db: Session, shop: Shop) -> list[dict]:
 
 
 def _sync_fbs_orders(db: Session, shop: Shop, api_token: str,
-                     nm_card_map: dict, stat_orders: list[dict]):
+                     nm_card_map: dict, stat_orders: list[dict],
+                     stat_sales: list[dict]):
     """Sync FBS orders from Marketplace API (90 days).
 
     Price is resolved at insert time:
       1. From Marketplace API (salePrice/convertedFinalPrice)
       2. Fallback: from Statistics Orders (by srid match)
+      3. Fallback: from Statistics Sales (by srid match)
     """
     # Fetch FBS orders from Marketplace API
     fbs_date_from = datetime.now(timezone.utc) - timedelta(days=90)
@@ -245,6 +256,11 @@ def _sync_fbs_orders(db: Session, shop: Shop, api_token: str,
         srid = o.get("srid", "")
         if srid:
             stat_by_srid[srid] = o
+    # Also include Sales data for broader price coverage
+    for s in stat_sales:
+        srid = s.get("srid", "")
+        if srid and srid not in stat_by_srid:
+            stat_by_srid[srid] = s
 
     created = 0
     updated = 0
@@ -346,11 +362,53 @@ def _sync_fbs_orders(db: Session, shop: Shop, api_token: str,
     print(f"[Sync] FBS: created {created}, updated {updated} for shop {shop.id}")
 
 
+def _fill_fbs_prices_from_report(db: Session, shop: Shop, report_data: list[dict]):
+    """Fill price=0 FBS orders using Report Detail data.
+
+    Marketplace API often returns 0 prices for completed/old orders.
+    Report Detail has retail_price_withdisc_rub for settled orders.
+    Match by srid.
+    """
+    # Get FBS orders with price=0
+    zero_price_orders = db.query(Order).filter(
+        Order.shop_id == shop.id,
+        Order.order_type == "FBS",
+        Order.total_price == 0,
+    ).all()
+    if not zero_price_orders:
+        return
+
+    zero_by_srid = {o.srid: o for o in zero_price_orders if o.srid}
+
+    # Build srid → best price from Report Detail
+    from collections import defaultdict
+    srid_prices = defaultdict(float)
+    for r in report_data:
+        srid = r.get("srid", "")
+        if srid and srid in zero_by_srid:
+            price = float(r.get("retail_price_withdisc_rub", 0) or 0)
+            if price > srid_prices[srid]:
+                srid_prices[srid] = price
+
+    updated = 0
+    for srid, price in srid_prices.items():
+        if price > 0:
+            order = zero_by_srid[srid]
+            order.total_price = price
+            order.price_rub = price
+            order.updated_at = datetime.now(timezone.utc)
+            updated += 1
+
+    if updated:
+        print(f"[Sync] FBS price fill from Report Detail: {updated}/{len(zero_price_orders)} for shop {shop.id}")
+
+
 # ── FBW sync ──────────────────────────────────────────────────────────────────
 
 
 def _sync_fbw_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict,
-                     stat_orders: list[dict], stat_sales: list[dict]):
+                     stat_orders: list[dict], stat_sales: list[dict],
+                     report_data: list[dict]):
     """Sync FBW orders from triple data sources.
 
     Source priority: Statistics Orders > Statistics Sales > Report Detail.
@@ -432,12 +490,7 @@ def _sync_fbw_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict,
             sales_price_updates += 1
     print(f"[Sync] Sales: {sales_price_updates} FBW price updates for shop {shop.id}")
 
-    # Source 3: Report Detail (fills 20-90 day gap)
-    date_from = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
-    date_to = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    report_data = fetch_report_detail(api_token, date_from, date_to)
-    print(f"[Sync] Report Detail: {len(report_data)} records for shop {shop.id}")
-
+    # Source 3: Report Detail (fills 20-90 day gap, data passed from parent)
     # Group by srid
     srid_groups = defaultdict(list)
     for r in report_data:
