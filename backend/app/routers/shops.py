@@ -112,22 +112,50 @@ from app.services.sync import sync_shop_orders, sync_shop_inventory, sync_shop_a
 
 def _run_sync(shop_id: int):
     """Run sync in background thread with its own DB session."""
+    import traceback
     db = SessionLocal()
     try:
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
         if not shop:
             with _sync_lock:
-                _sync_status[shop_id] = {"status": "error", "detail": "Shop not found"}
+                _sync_status[shop_id] = {"status": "error", "detail": "店铺不存在"}
             return
-        cards = sync_shop_orders(db, shop)
-        sync_shop_inventory(db, shop)
-        sync_shop_ads(db, shop, cards=cards)
-        sync_shop_products(db, shop, cards=cards)
+
+        errors = []
+        cards = None
+        try:
+            cards = sync_shop_orders(db, shop)
+        except Exception as e:
+            errors.append(f"订单同步失败: {e}")
+            print(f"[Sync] Order sync error for {shop.name}: {traceback.format_exc()}")
+
+        try:
+            sync_shop_inventory(db, shop)
+        except Exception as e:
+            errors.append(f"库存同步失败: {e}")
+            print(f"[Sync] Inventory sync error for {shop.name}: {traceback.format_exc()}")
+
+        try:
+            sync_shop_ads(db, shop, cards=cards)
+        except Exception as e:
+            errors.append(f"广告同步失败: {e}")
+            print(f"[Sync] Ads sync error for {shop.name}: {traceback.format_exc()}")
+
+        try:
+            sync_shop_products(db, shop, cards=cards)
+        except Exception as e:
+            errors.append(f"产品同步失败: {e}")
+            print(f"[Sync] Products sync error for {shop.name}: {traceback.format_exc()}")
+
         with _sync_lock:
-            _sync_status[shop_id] = {"status": "done", "detail": f"Sync completed for {shop.name}"}
+            if errors:
+                _sync_status[shop_id] = {"status": "error", "detail": "; ".join(errors)}
+            else:
+                _sync_status[shop_id] = {"status": "done", "detail": f"{shop.name} 同步完成"}
     except Exception as e:
+        print(f"[Sync] Fatal error for shop {shop_id}: {traceback.format_exc()}")
         with _sync_lock:
-            _sync_status[shop_id] = {"status": "error", "detail": str(e)}
+            _sync_status[shop_id] = {"status": "error", "detail": f"同步异常: {e}"}
     finally:
         db.close()
 

@@ -66,7 +66,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
 
@@ -156,7 +156,7 @@ async function syncShop(id) {
           clearInterval(syncPollTimer)
           syncPollTimer = null
           syncing.value = null
-          ElMessage.error(`同步失败: ${data.detail}`)
+          ElMessageBox.alert(data.detail || '未知错误', '同步失败', { type: 'error', confirmButtonText: '确定' })
         }
       } catch {
         clearInterval(syncPollTimer)
