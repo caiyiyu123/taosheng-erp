@@ -9,7 +9,7 @@ from app.models.ad import AdCampaign, AdDailyStat
 from app.utils.security import decrypt_token
 from app.services.wb_api import (
     fetch_new_orders, fetch_orders, fetch_order_statuses,
-    fetch_warehouses, fetch_stocks, fetch_cards,
+    fetch_warehouses, fetch_stocks, fetch_fbw_stocks, fetch_cards,
     fetch_statistics_orders, fetch_statistics_sales, fetch_report_detail,
     fetch_ad_campaign_ids, fetch_ad_details, fetch_ad_fullstats,
     fetch_ad_campaign_names, fetch_ad_budgets_batch,
@@ -749,13 +749,32 @@ def sync_shop_inventory(db: Session, shop: Shop):
             # FBS warehouses are seller's own warehouses (from /api/v3/warehouses)
             sku_stocks[sku]["fbs"] += amount
 
-    # Step 4: Update inventory records
+    # Step 4: Fetch FBW stocks from Statistics API (WB warehouses)
+    fbw_stock_data = fetch_fbw_stocks(api_token)
+    for s in fbw_stock_data:
+        barcode = s.get("barcode", "")
+        qty = s.get("quantity", 0) or 0
+        if not barcode or qty <= 0:
+            continue
+
+        mapping = barcode_to_mapping.get(barcode)
+        sku = mapping.shop_sku if mapping else barcode
+        name = mapping.wb_product_name if mapping else (s.get("subject", "") or s.get("category", ""))
+        nm_id = mapping.wb_nm_id if mapping else str(s.get("nmId", ""))
+
+        if sku not in sku_stocks:
+            sku_stocks[sku] = {"name": name, "fbs": 0, "fbw": 0, "nm_id": nm_id}
+
+        sku_stocks[sku]["fbw"] += qty
+
+    # Step 5: Update inventory records
     for sku, data in sku_stocks.items():
         inv = db.query(Inventory).filter(
             Inventory.shop_id == shop.id, Inventory.sku == sku
         ).first()
         if inv:
             inv.stock_fbs = data["fbs"]
+            inv.stock_fbw = data["fbw"]
             if data.get("nm_id"):
                 inv.wb_product_id = data["nm_id"]
             inv.updated_at = datetime.now(timezone.utc)
@@ -767,7 +786,7 @@ def sync_shop_inventory(db: Session, shop: Shop):
                 sku=sku,
                 barcode=sku,
                 stock_fbs=data["fbs"],
-                stock_fbw=0,
+                stock_fbw=data["fbw"],
             )
             db.add(inv)
 

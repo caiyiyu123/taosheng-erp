@@ -174,6 +174,38 @@ def fetch_stocks(api_token: str, warehouse_id: int, skus: list[str]) -> list[dic
     return all_stocks
 
 
+def fetch_fbw_stocks(api_token: str) -> list[dict]:
+    """GET /api/v1/supplier/stocks — fetch FBW warehouse stock from Statistics API.
+
+    Returns all stock across WB fulfillment warehouses.
+    Each record: {barcode, nmId, warehouseName, quantity, inWayToClient, ...}
+    """
+    url = f"{STATISTICS_API}/api/v1/supplier/stocks"
+    date_from = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z")
+    try:
+        resp = None
+        with httpx.Client(timeout=60) as client:
+            for attempt in range(4):
+                _throttle()
+                resp = client.get(url, headers=_headers(api_token),
+                                  params={"dateFrom": date_from})
+                if resp.status_code == 429:
+                    wait = min(60 * (attempt + 1), 180)
+                    print(f"[WB API] FBW stocks 429, waiting {wait}s...")
+                    time.sleep(wait)
+                    continue
+                break
+        if resp and resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, list):
+                print(f"[WB API] FBW stocks: {len(data)} records")
+                return data
+        print(f"[WB API] FBW stocks: status={resp.status_code if resp else 'None'}")
+    except Exception as e:
+        print(f"[WB API] Error fetching FBW stocks: {e}")
+    return []
+
+
 def fetch_cards(api_token: str) -> list[dict]:
     """POST /content/v2/get/cards/list — fetch product cards for names/photos.
 
