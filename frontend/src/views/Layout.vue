@@ -36,6 +36,10 @@
           <el-icon><Money /></el-icon>
           <span>财务统计</span>
         </el-menu-item>
+        <el-menu-item v-if="hasPerm('customer_service')" index="/customer-service">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>客户互动</span>
+        </el-menu-item>
         <el-menu-item v-if="hasPerm('inventory')" index="/inventory">
           <el-icon><List /></el-icon>
           <span>库存管理</span>
@@ -76,7 +80,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { DataAnalysis, Box, ShoppingCart, Goods, TrendCharts, Money, List, Shop, User } from '@element-plus/icons-vue'
+import { DataAnalysis, Box, ShoppingCart, Goods, TrendCharts, Money, List, Shop, User, ChatDotRound } from '@element-plus/icons-vue'
 import { APP_TITLE, APP_LOGO } from '../brand'
 
 const appTitle = APP_TITLE

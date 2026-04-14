@@ -8,6 +8,8 @@ from datetime import datetime, timezone, timedelta
 MARKETPLACE_API = "https://marketplace-api.wildberries.ru"
 STATISTICS_API = "https://statistics-api.wildberries.ru"
 ADVERT_API = "https://advert-api.wildberries.ru"
+FEEDBACKS_API = "https://feedbacks-api.wildberries.ru"
+CHAT_API = "https://suppliers-api.wildberries.ru"
 
 # Rate limit: min 200ms between requests
 _last_request_time = 0.0
@@ -298,7 +300,6 @@ def fetch_product_ratings(api_token: str, nm_ids: list[int]) -> dict[int, dict]:
     For each nmId, fetches feedbacks and calculates average rating.
     Returns dict: {nm_id: {"valuation": 4.5, "feedbacksCount": 42}}
     """
-    FEEDBACKS_API = "https://feedbacks-api.wildberries.ru"
     url = f"{FEEDBACKS_API}/api/v1/feedbacks"
     result = {}
 
@@ -771,3 +772,120 @@ def fetch_public_rub_prices(nm_ids: list[int]) -> dict[int, float]:
 
     print(f"[WB Public] RUB prices fetched for {len(result)}/{len(nm_ids)} products")
     return result
+
+
+# ── Customer Service: Feedbacks, Questions, Chats ──
+
+
+def fetch_feedbacks(api_token: str, is_answered: bool = False, take: int = 20, skip: int = 0) -> dict:
+    """GET /api/v1/feedbacks — fetch product feedbacks list."""
+    url = f"{FEEDBACKS_API}/api/v1/feedbacks"
+    try:
+        _throttle()
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(url, headers=_headers(api_token), params={
+                "isAnswered": is_answered, "take": take, "skip": skip,
+            })
+            if resp.status_code == 200:
+                return resp.json()
+            print(f"[WB API] feedbacks: status={resp.status_code}")
+    except Exception as e:
+        print(f"[WB API] Error fetching feedbacks: {e}")
+    return {"data": {"feedbacks": [], "countUnanswered": 0}}
+
+
+def reply_feedback(api_token: str, feedback_id: str, text: str) -> dict:
+    """POST /api/v1/feedbacks/answer — reply to a feedback."""
+    url = f"{FEEDBACKS_API}/api/v1/feedbacks/answer"
+    try:
+        _throttle()
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(url, headers=_headers(api_token), json={
+                "id": feedback_id, "text": text,
+            })
+            if resp.status_code == 200:
+                return {"ok": True}
+            return {"ok": False, "error": resp.text, "status": resp.status_code}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def fetch_questions(api_token: str, is_answered: bool = False, take: int = 20, skip: int = 0) -> dict:
+    """GET /api/v1/questions — fetch product questions list."""
+    url = f"{FEEDBACKS_API}/api/v1/questions"
+    try:
+        _throttle()
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(url, headers=_headers(api_token), params={
+                "isAnswered": is_answered, "take": take, "skip": skip,
+            })
+            if resp.status_code == 200:
+                return resp.json()
+            print(f"[WB API] questions: status={resp.status_code}")
+    except Exception as e:
+        print(f"[WB API] Error fetching questions: {e}")
+    return {"data": {"questions": [], "countUnanswered": 0}}
+
+
+def reply_question(api_token: str, question_id: str, text: str) -> dict:
+    """POST /api/v1/questions — reply to a question."""
+    url = f"{FEEDBACKS_API}/api/v1/questions"
+    try:
+        _throttle()
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(url, headers=_headers(api_token), json={
+                "id": question_id, "text": text, "state": "wbRu",
+            })
+            if resp.status_code == 200:
+                return {"ok": True}
+            return {"ok": False, "error": resp.text, "status": resp.status_code}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def fetch_chats(api_token: str) -> list:
+    """GET /api/v1/seller/chats — fetch buyer chat list."""
+    url = f"{CHAT_API}/api/v1/seller/chats"
+    try:
+        _throttle()
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(url, headers=_headers(api_token))
+            if resp.status_code == 200:
+                data = resp.json()
+                return data if isinstance(data, list) else data.get("chats", [])
+            print(f"[WB API] chats: status={resp.status_code}")
+    except Exception as e:
+        print(f"[WB API] Error fetching chats: {e}")
+    return []
+
+
+def fetch_chat_messages(api_token: str, chat_id: str) -> list:
+    """GET /api/v1/seller/events — fetch messages for a chat."""
+    url = f"{CHAT_API}/api/v1/seller/events"
+    try:
+        _throttle()
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(url, headers=_headers(api_token), params={"chatId": chat_id})
+            if resp.status_code == 200:
+                data = resp.json()
+                return data if isinstance(data, list) else data.get("events", [])
+            print(f"[WB API] chat messages: status={resp.status_code}")
+    except Exception as e:
+        print(f"[WB API] Error fetching chat messages: {e}")
+    return []
+
+
+def send_chat_message(api_token: str, chat_id: str, text: str) -> dict:
+    """POST /api/v1/seller/message — send message in a chat."""
+    url = f"{CHAT_API}/api/v1/seller/message"
+    try:
+        _throttle()
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(url, headers=_headers(api_token), json={
+                "chatId": chat_id, "message": text,
+            })
+            if resp.status_code == 200:
+                return {"ok": True}
+            return {"ok": False, "error": resp.text, "status": resp.status_code}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
