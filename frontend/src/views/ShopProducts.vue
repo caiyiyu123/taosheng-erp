@@ -44,10 +44,17 @@
           {{ row.price_cny > 0 ? '¥' + row.price_cny.toLocaleString() : '-' }}
         </template>
       </el-table-column>
-      <el-table-column label="库存" width="80" align="center">
+      <el-table-column label="FBS库存" width="90" align="center">
         <template #default="{ row }">
-          <span :style="{ color: row.stock <= 0 ? '#f56c6c' : row.stock < 10 ? '#e6a23c' : '' }">
-            {{ row.stock }}
+          <span :style="{ color: row.stock_fbs <= 0 ? '#f56c6c' : row.stock_fbs < 10 ? '#e6a23c' : '' }">
+            {{ row.stock_fbs }}
+          </span>
+        </template>
+      </el-table-column>
+      <el-table-column label="FBW库存" width="90" align="center">
+        <template #default="{ row }">
+          <span :style="{ color: row.stock_fbw <= 0 ? '#f56c6c' : row.stock_fbw < 10 ? '#e6a23c' : '' }">
+            {{ row.stock_fbw }}
           </span>
         </template>
       </el-table-column>

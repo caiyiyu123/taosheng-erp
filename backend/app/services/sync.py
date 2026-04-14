@@ -1,4 +1,5 @@
 from datetime import datetime, timezone, timedelta, date
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.shop import Shop
@@ -750,29 +751,51 @@ def sync_shop_inventory(db: Session, shop: Shop):
             sku_stocks[sku]["fbs"] += amount
 
     # Step 4: Fetch FBW stocks from Statistics API (WB warehouses)
+    # Use supplierArticle (vendor code) as SKU key, matching ShopProduct.vendor_code
     fbw_stock_data = fetch_fbw_stocks(api_token)
     for s in fbw_stock_data:
-        barcode = s.get("barcode", "")
+        sku = s.get("supplierArticle", "").strip()
         qty = s.get("quantity", 0) or 0
-        if not barcode or qty <= 0:
+        if not sku or qty <= 0:
             continue
 
-        mapping = barcode_to_mapping.get(barcode)
-        sku = mapping.shop_sku if mapping else barcode
-        name = mapping.wb_product_name if mapping else (s.get("subject", "") or s.get("category", ""))
-        nm_id = mapping.wb_nm_id if mapping else str(s.get("nmId", ""))
+        nm_id = str(s.get("nmId", ""))
+        name = s.get("subject", "") or s.get("category", "")
 
         if sku not in sku_stocks:
             sku_stocks[sku] = {"name": name, "fbs": 0, "fbw": 0, "nm_id": nm_id}
 
         sku_stocks[sku]["fbw"] += qty
 
-    # Step 5: Update inventory records
+    # Step 5: Merge sku_stocks by case-insensitive key
+    merged: dict[str, dict] = {}
     for sku, data in sku_stocks.items():
-        inv = db.query(Inventory).filter(
-            Inventory.shop_id == shop.id, Inventory.sku == sku
-        ).first()
-        if inv:
+        key = sku.lower()
+        if key in merged:
+            merged[key]["fbs"] += data["fbs"]
+            merged[key]["fbw"] += data["fbw"]
+            if data.get("nm_id") and not merged[key].get("nm_id"):
+                merged[key]["nm_id"] = data["nm_id"]
+            if data.get("name") and not merged[key].get("name"):
+                merged[key]["name"] = data["name"]
+        else:
+            merged[key] = {**data, "original_sku": sku}
+
+    # Step 6: Update inventory records (deduplicate by case-insensitive SKU)
+    for key, data in merged.items():
+        sku = data.pop("original_sku")
+        # Find all records matching this SKU (case-insensitive)
+        invs = db.query(Inventory).filter(
+            Inventory.shop_id == shop.id,
+            func.lower(Inventory.sku) == key,
+        ).all()
+
+        if invs:
+            # Keep the first, delete duplicates
+            inv = invs[0]
+            for dup in invs[1:]:
+                db.delete(dup)
+            inv.sku = sku  # normalize to latest casing
             inv.stock_fbs = data["fbs"]
             inv.stock_fbw = data["fbw"]
             if data.get("nm_id"):

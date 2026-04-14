@@ -181,7 +181,7 @@ def fetch_fbw_stocks(api_token: str) -> list[dict]:
     Each record: {barcode, nmId, warehouseName, quantity, inWayToClient, ...}
     """
     url = f"{STATISTICS_API}/api/v1/supplier/stocks"
-    date_from = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z")
+    date_from = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT00:00:00.000Z")
     try:
         resp = None
         with httpx.Client(timeout=60) as client:
