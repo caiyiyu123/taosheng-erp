@@ -379,27 +379,24 @@ def fetch_statistics_orders(api_token: str, date_from: Optional[datetime] = None
     flag0_count = len(all_orders)
 
     # --- Mode 2: flag=1 (order creation date) ---
-    # Query recent 7 days day-by-day to catch orders that flag=0 might miss.
-    # flag=1 returns orders created on that specific date (time part ignored).
+    # Single request from 21 days ago to catch orders that flag=0 might miss.
+    # flag=1 returns ALL orders created since dateFrom.
     flag1_new = 0
     try:
         with httpx.Client(timeout=120) as client:
-            for day_offset in range(7):
-                query_date = datetime.now(timezone.utc) - timedelta(days=day_offset)
-                flag1_date = query_date.strftime("%Y-%m-%dT00:00:00.000Z")
-                resp = None
-                for attempt in range(3):
-                    _throttle()
-                    resp = client.get(url, headers=_headers(api_token),
-                                      params={"dateFrom": flag1_date, "flag": 1})
-                    if resp.status_code == 429:
-                        wait = min(60 * (attempt + 1), 180)
-                        print(f"[WB API] stat orders flag=1: 429, waiting {wait}s...")
-                        time.sleep(wait)
-                        continue
-                    break
-                if resp.status_code != 200:
+            flag1_date = (datetime.now(timezone.utc) - timedelta(days=21)).strftime("%Y-%m-%dT00:00:00.000Z")
+            resp = None
+            for attempt in range(4):
+                _throttle()
+                resp = client.get(url, headers=_headers(api_token),
+                                  params={"dateFrom": flag1_date, "flag": 1})
+                if resp.status_code == 429:
+                    wait = min(60 * (attempt + 1), 180)
+                    print(f"[WB API] stat orders flag=1: 429, waiting {wait}s...")
+                    time.sleep(wait)
                     continue
+                break
+            if resp and resp.status_code == 200:
                 data = resp.json()
                 if isinstance(data, list) and data:
                     for o in data:
@@ -408,9 +405,8 @@ def fetch_statistics_orders(api_token: str, date_from: Optional[datetime] = None
                             all_orders.append(o)
                             seen_srids.add(srid)
                             flag1_new += 1
-                time.sleep(3)  # Pause between daily queries
         if flag1_new:
-            print(f"[WB API] stat orders flag=1 (7 days): {flag1_new} new orders")
+            print(f"[WB API] stat orders flag=1: {flag1_new} new orders")
     except Exception as e:
         print(f"[WB API] Error fetching statistics orders (flag=1): {e}")
 
@@ -486,15 +482,19 @@ def fetch_report_detail(api_token: str, date_from: str, date_to: str) -> list[di
             with httpx.Client(timeout=120) as client:
                 while True:
                     params = {"dateFrom": cf, "dateTo": ct, "rrdid": rrdid}
-                    # Retry with backoff on 429
-                    for attempt in range(4):
+                    # Retry with exponential backoff on 429
+                    resp = None
+                    for attempt in range(6):
                         _throttle()
                         resp = client.get(url, headers=_headers(api_token), params=params)
                         if resp.status_code == 429:
-                            wait = min(60 * (attempt + 1), 180)
-                            print(f"[WB API] Report detail 429, waiting {wait}s...")
+                            wait = min(30 * (2 ** attempt), 300)
+                            print(f"[WB API] Report detail 429, attempt {attempt+1}/6, waiting {wait}s...")
                             time.sleep(wait)
                             continue
+                        break
+                    if resp is None or resp.status_code == 429:
+                        print(f"[WB API] Report detail: exhausted retries for chunk {cf}~{ct}")
                         break
                     if resp.status_code == 204 or not resp.content:
                         break
@@ -506,11 +506,11 @@ def fetch_report_detail(api_token: str, date_from: str, date_to: str) -> list[di
                     rrdid = data[-1].get("rrd_id", 0)
                     if not rrdid:
                         break
-                    time.sleep(1)  # Extra delay between pagination requests
+                    time.sleep(3)  # Extra delay between pagination requests
         except Exception as e:
             print(f"[WB API] Error fetching report detail chunk {cf}~{ct}: {e}")
 
-        time.sleep(3)  # Pause between chunks to avoid rate limits
+        time.sleep(5)  # Pause between chunks to avoid rate limits
         chunk_start = chunk_end
 
     return all_records

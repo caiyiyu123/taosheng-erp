@@ -504,10 +504,13 @@ def _sync_fbw_orders(db: Session, shop: Shop, api_token: str, nm_card_map: dict,
 
         # Classify FBS vs FBW:
         # 1. delivery_method (explicit FBS/FBW label)
-        # 2. assembly_id (FBS has non-zero assembly_id)
-        # 3. FBS fingerprint: (nm_id, order_date) matching existing FBS orders
+        # 2. gi_box_type_name (Маркетплейс = FBS)
+        # 3. assembly_id (FBS has non-zero assembly_id)
         dm_values = {r.get("delivery_method", "") for r in records} - {""}
+        gi_values = {r.get("gi_box_type_name", "") for r in records} - {""}
         is_fbs = any("FBS" in d.upper() for d in dm_values)
+        if not is_fbs:
+            is_fbs = any("Маркетплейс" in v for v in gi_values)
         if not is_fbs:
             has_assembly = any(r.get("assembly_id", 0) not in (0, None) for r in records)
             if has_assembly:
