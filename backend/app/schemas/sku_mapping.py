@@ -9,6 +9,7 @@ class SkuMappingOut(BaseModel):
     shop_sku: str
     product_id: Optional[int] = None
     wb_product_name: str
+    wb_image_url: str = ""
     wb_barcode: str
     created_at: datetime
 
