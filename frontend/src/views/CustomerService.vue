@@ -27,7 +27,10 @@
           </el-table-column>
           <el-table-column label="产品" min-width="200">
             <template #default="{ row }">
-              {{ row.productDetails?.productName || row.subjectName || '-' }}
+              <a v-if="row.productDetails?.nmId" :href="'https://www.wildberries.ru/catalog/' + row.productDetails.nmId + '/detail.aspx'" target="_blank" style="color: #409eff; text-decoration: none; cursor: pointer">
+                {{ row.productDetails?.productName || row.subjectName || '-' }}
+              </a>
+              <span v-else>{{ row.subjectName || '-' }}</span>
             </template>
           </el-table-column>
           <el-table-column label="评分" width="100" align="center">
@@ -39,8 +42,9 @@
           </el-table-column>
           <el-table-column label="评价内容" min-width="300">
             <template #default="{ row }">
-              <div v-if="row.textZh" style="font-size: 13px; margin-bottom: 4px">{{ row.textZh }}</div>
-              <div :style="{ color: row.textZh ? '#999' : '', fontSize: row.textZh ? '12px' : '13px' }">{{ row.text || '-' }}</div>
+              <div style="font-size: 13px">{{ row.text || '-' }}</div>
+              <div v-if="row._textZh" style="color: #409eff; font-size: 12px; margin-top: 4px">{{ row._textZh }}</div>
+              <el-button v-else-if="row.text" link type="primary" size="small" style="margin-top: 2px; font-size: 12px" :loading="row._translating" @click="translateRow(row)">翻译</el-button>
             </template>
           </el-table-column>
           <el-table-column label="日期" width="110" align="center">
@@ -73,13 +77,17 @@
           </el-table-column>
           <el-table-column label="产品" min-width="200">
             <template #default="{ row }">
-              {{ row.productDetails?.productName || row.subjectName || '-' }}
+              <a v-if="row.productDetails?.nmId" :href="'https://www.wildberries.ru/catalog/' + row.productDetails.nmId + '/detail.aspx'" target="_blank" style="color: #409eff; text-decoration: none; cursor: pointer">
+                {{ row.productDetails?.productName || row.subjectName || '-' }}
+              </a>
+              <span v-else>{{ row.subjectName || '-' }}</span>
             </template>
           </el-table-column>
           <el-table-column label="问题内容" min-width="350">
             <template #default="{ row }">
-              <div v-if="row.textZh" style="font-size: 13px; margin-bottom: 4px">{{ row.textZh }}</div>
-              <div :style="{ color: row.textZh ? '#999' : '', fontSize: row.textZh ? '12px' : '13px' }">{{ row.text || '-' }}</div>
+              <div style="font-size: 13px">{{ row.text || '-' }}</div>
+              <div v-if="row._textZh" style="color: #409eff; font-size: 12px; margin-top: 4px">{{ row._textZh }}</div>
+              <el-button v-else-if="row.text" link type="primary" size="small" style="margin-top: 2px; font-size: 12px" :loading="row._translating" @click="translateRow(row)">翻译</el-button>
             </template>
           </el-table-column>
           <el-table-column label="日期" width="110" align="center">
@@ -154,7 +162,13 @@
   <!-- 回复对话框 -->
   <el-dialog v-model="showReplyDialog" :title="replyType === 'feedback' ? '评价详情' : '问题详情'" width="600px">
     <div v-if="replyItem" style="margin-bottom: 16px">
-      <p style="color: #666; margin-bottom: 8px"><strong>产品：</strong>{{ replyItem.productDetails?.productName || replyItem.subjectName || '-' }}</p>
+      <p style="color: #666; margin-bottom: 8px">
+        <strong>产品：</strong>
+        <a v-if="replyItem.productDetails?.nmId" :href="'https://www.wildberries.ru/catalog/' + replyItem.productDetails.nmId + '/detail.aspx'" target="_blank" style="color: #409eff; text-decoration: none">
+          {{ replyItem.productDetails?.productName || replyItem.subjectName || '-' }}
+        </a>
+        <span v-else>{{ replyItem.subjectName || '-' }}</span>
+      </p>
       <p v-if="replyType === 'feedback'" style="margin-bottom: 8px">
         <strong>评分：</strong>
         <span :style="{ color: replyItem.productValuation >= 4 ? '#67c23a' : '#e6a23c' }">
@@ -163,14 +177,16 @@
       </p>
       <p style="margin-bottom: 8px"><strong>{{ replyType === 'feedback' ? '评价' : '问题' }}：</strong></p>
       <div style="background: #f5f7fa; padding: 12px; border-radius: 4px; margin-bottom: 16px">
-        <div v-if="replyItem.textZh" style="margin-bottom: 6px">{{ replyItem.textZh }}</div>
-        <div :style="{ color: replyItem.textZh ? '#999' : '' }">{{ replyItem.text || '-' }}</div>
+        <div>{{ replyItem.text || '-' }}</div>
+        <div v-if="replyItem._textZh" style="color: #409eff; margin-top: 6px">{{ replyItem._textZh }}</div>
+        <el-button v-else-if="replyItem.text" link type="primary" size="small" style="margin-top: 4px" :loading="replyItem._translating" @click="translateRow(replyItem)">翻译</el-button>
       </div>
       <div v-if="replyItem.answer">
         <p style="margin-bottom: 8px"><strong>已回复：</strong></p>
         <div style="background: #f0f9eb; padding: 12px; border-radius: 4px">
-          <div v-if="replyItem.answer._textZh" style="margin-bottom: 6px">{{ replyItem.answer._textZh }}</div>
-          <div :style="{ color: replyItem.answer._textZh ? '#999' : '' }">{{ replyItem.answer.text }}</div>
+          <div>{{ replyItem.answer.text }}</div>
+          <div v-if="replyItem.answer._textZh" style="color: #409eff; margin-top: 6px">{{ replyItem.answer._textZh }}</div>
+          <el-button v-else-if="replyItem.answer.text" link type="primary" size="small" style="margin-top: 4px" :loading="replyItem.answer._translating" @click="translateAnswer(replyItem.answer)">翻译</el-button>
         </div>
       </div>
       <div v-else>
@@ -301,6 +317,32 @@ async function sendMessage() {
     ElMessage.error('发送失败: ' + (e.response?.data?.detail || e.message))
   } finally {
     sending.value = false
+  }
+}
+
+async function translateRow(row) {
+  if (!row.text || row._textZh) return
+  row._translating = true
+  try {
+    const { data } = await api.post('/api/customer-service/translate', { text: row.text })
+    row._textZh = data.translated || ''
+  } catch {
+    ElMessage.error('翻译失败')
+  } finally {
+    row._translating = false
+  }
+}
+
+async function translateAnswer(answer) {
+  if (!answer.text || answer._textZh) return
+  answer._translating = true
+  try {
+    const { data } = await api.post('/api/customer-service/translate', { text: answer.text })
+    answer._textZh = data.translated || ''
+  } catch {
+    ElMessage.error('翻译失败')
+  } finally {
+    answer._translating = false
   }
 }
 

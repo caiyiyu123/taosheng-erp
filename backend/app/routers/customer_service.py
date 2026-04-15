@@ -43,7 +43,6 @@ def list_feedbacks(
     result = fetch_feedbacks(token, is_answered, take, skip)
     items = result.get("data", {}).get("feedbacks", [])
     _attach_images(db, shop_id, items)
-    _translate_items(items)
     return result
 
 
@@ -62,36 +61,31 @@ def _attach_images(db: Session, shop_id: int, items: list):
         item["_imageUrl"] = img_map.get(nm, "")
 
 
-def _translate_one(text: str) -> str:
+class TranslateBody(BaseModel):
+    text: str
+
+
+@router.post("/translate")
+def translate_text(
+    body: TranslateBody,
+    _=Depends(require_module("customer_service")),
+):
     """Translate a single text from Russian to Chinese."""
+    if not body.text.strip():
+        return {"translated": ""}
     try:
         resp = httpx.get(
             "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "ru", "tl": "zh-CN", "dt": "t", "q": text},
+            params={"client": "gtx", "sl": "ru", "tl": "zh-CN", "dt": "t", "q": body.text},
             timeout=15,
         )
         if resp.status_code == 200:
             data = resp.json()
-            return "".join(part[0] for part in data[0] if part[0])
+            translated = "".join(part[0] for part in data[0] if part[0])
+            return {"translated": translated}
     except Exception as e:
         print(f"[Translate] Error: {e}")
-    return ""
-
-
-def _translate_items(items: list, fields: list[str] = ["text"]):
-    """Translate Russian text fields to Chinese using Google Translate."""
-    for item in items:
-        for f in fields:
-            val = item.get(f, "")
-            if val and isinstance(val, str):
-                zh = _translate_one(val)
-                if zh:
-                    item[f"{f}Zh"] = zh
-        answer = item.get("answer")
-        if answer and isinstance(answer, dict) and answer.get("text"):
-            zh = _translate_one(answer["text"])
-            if zh:
-                answer["_textZh"] = zh
+    return {"translated": ""}
 
 
 class ReplyBody(BaseModel):
@@ -130,7 +124,6 @@ def list_questions(
     result = fetch_questions(token, is_answered, take, skip)
     items = result.get("data", {}).get("questions", [])
     _attach_images(db, shop_id, items)
-    _translate_items(items)
     return result
 
 
