@@ -76,7 +76,7 @@
   <!-- 展开行：显示商品明细 -->
 
   <!-- 新增/编辑对话框 -->
-  <el-dialog v-model="showDialog" :title="form.id ? '编辑采购计划' : '新增采购计划'" width="900px" top="5vh">
+  <el-dialog v-model="showDialog" :title="form.id ? '编辑采购计划' : '新增采购计划'" width="960px" top="5vh">
     <el-form :model="form" label-width="90px">
       <div style="display: flex; gap: 16px">
         <el-form-item label="采购员" style="flex: 1">
@@ -111,8 +111,8 @@
             <span v-else style="color: #ccc">无图</span>
           </template>
         </el-table-column>
-        <el-table-column prop="product_sku" label="商品SKU" min-width="120" />
-        <el-table-column prop="product_name" label="商品名称" min-width="120" />
+        <el-table-column prop="product_sku" label="商品SKU" width="120" />
+        <el-table-column prop="product_name" label="商品名称" width="150" />
         <el-table-column label="采购单价" width="130" align="center">
           <template #default="{ row }">
             <el-input-number v-model="row.unit_price" :min="0" :precision="2" :controls="false" size="small" style="width: 100px" />
@@ -128,12 +128,12 @@
             <el-input-number v-model="row.boxes" :min="0" :precision="0" :controls="false" size="small" style="width: 80px" />
           </template>
         </el-table-column>
-        <el-table-column label="箱数" width="80" align="center">
+        <el-table-column label="箱数" width="60" align="center">
           <template #default="{ row }">
             <span>{{ row.boxes ? Math.ceil(row.quantity / row.boxes) : 0 }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="小计" width="120" align="right">
+        <el-table-column label="小计" width="120" align="center">
           <template #default="{ row }">
             <span style="font-weight: 600; white-space: nowrap">¥ {{ (row.quantity * row.unit_price).toFixed(1) }}</span>
           </template>
@@ -367,3 +367,4 @@ onMounted(() => {
   fetchProducts()
 })
 </script>
+
