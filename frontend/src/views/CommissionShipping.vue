@@ -192,7 +192,7 @@ async function fetchCommissionRates() {
     commissionRates.value = data.rates || []
     extraHeaders.value = data.headers || []
     totalRates.value = data.total || 0
-  } catch { ElMessage.error('加载佣金数据失败') }
+  } catch { /* 无数据时静默 */ }
   finally { loadingRates.value = false }
 }
 
@@ -252,7 +252,7 @@ async function fetchShippingTemplates() {
   try {
     const { data } = await api.get('/api/shipping/templates')
     shippingTemplates.value = data
-  } catch { ElMessage.error('加载运费模板失败') }
+  } catch { /* 无数据时静默 */ }
   finally { loadingTemplates.value = false }
 }
 

@@ -65,11 +65,19 @@
               <el-tag v-else type="warning" size="small">待回复</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="100" align="center">
+          <el-table-column label="操作" width="120" align="center">
             <template #default="{ row }">
               <el-button size="small" type="primary" @click="openReplyDialog(row, 'feedback')">
                 {{ row.answer ? '查看' : '回复' }}
               </el-button>
+              <el-dropdown v-if="!row.answer && replyTemplates.length" trigger="click" @command="cmd => quickReply(row, cmd, 'feedback')" style="margin-top: 4px">
+                <el-button size="small" :loading="row._quickReplying">一键回复</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-for="t in replyTemplates" :key="t.id" :command="t.content">{{ t.name }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </template>
           </el-table-column>
         </el-table>
@@ -113,6 +121,27 @@
               <el-button size="small" type="primary" @click="openReplyDialog(row, 'question')">
                 {{ row.answer ? '查看' : '回复' }}
               </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+
+      <!-- 评价模板 Tab -->
+      <el-tab-pane label="评价模板" name="templates">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 12px">
+          <el-button type="primary" size="small" @click="openTemplateDialog()">添加模板</el-button>
+        </div>
+        <el-table :data="replyTemplates" stripe>
+          <el-table-column prop="name" label="模板名称" width="200" />
+          <el-table-column prop="content" label="回复内容" min-width="400" />
+          <el-table-column label="操作" width="140" align="center">
+            <template #default="{ row }">
+              <el-button size="small" link @click="openTemplateDialog(row)">编辑</el-button>
+              <el-popconfirm title="确定删除该模板?" @confirm="deleteReplyTemplate(row.id)">
+                <template #reference>
+                  <el-button size="small" link type="danger">删除</el-button>
+                </template>
+              </el-popconfirm>
             </template>
           </el-table-column>
         </el-table>
@@ -167,6 +196,22 @@
       </el-tab-pane>
     </el-tabs>
   </el-card>
+
+  <!-- 模板编辑对话框 -->
+  <el-dialog v-model="showTemplateDialog" :title="templateForm.id ? '编辑模板' : '添加模板'" width="500px">
+    <el-form :model="templateForm" label-width="80px">
+      <el-form-item label="模板名称">
+        <el-input v-model="templateForm.name" placeholder="如：好评感谢" />
+      </el-form-item>
+      <el-form-item label="回复内容">
+        <el-input v-model="templateForm.content" type="textarea" :rows="5" placeholder="输入回复模板内容..." />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="showTemplateDialog = false">取消</el-button>
+      <el-button type="primary" @click="saveReplyTemplate">保存</el-button>
+    </template>
+  </el-dialog>
 
   <!-- 回复对话框 -->
   <el-dialog v-model="showReplyDialog" :title="replyType === 'feedback' ? '评价详情' : '问题详情'" width="600px">
@@ -227,9 +272,75 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api'
+
+// ==================== 评价模板 ====================
+const TEMPLATE_KEY = 'erp_reply_templates'
+const replyTemplates = ref([])
+const showTemplateDialog = ref(false)
+const templateForm = reactive({ id: null, name: '', content: '' })
+
+function loadTemplates() {
+  try {
+    replyTemplates.value = JSON.parse(localStorage.getItem(TEMPLATE_KEY) || '[]')
+  } catch { replyTemplates.value = [] }
+}
+
+function saveTemplates() {
+  localStorage.setItem(TEMPLATE_KEY, JSON.stringify(replyTemplates.value))
+}
+
+function openTemplateDialog(row) {
+  if (row) {
+    templateForm.id = row.id
+    templateForm.name = row.name
+    templateForm.content = row.content
+  } else {
+    templateForm.id = null
+    templateForm.name = ''
+    templateForm.content = ''
+  }
+  showTemplateDialog.value = true
+}
+
+function saveReplyTemplate() {
+  if (!templateForm.name.trim() || !templateForm.content.trim()) {
+    ElMessage.warning('请填写模板名称和内容')
+    return
+  }
+  if (templateForm.id) {
+    const t = replyTemplates.value.find(x => x.id === templateForm.id)
+    if (t) { t.name = templateForm.name; t.content = templateForm.content }
+  } else {
+    replyTemplates.value.push({ id: Date.now(), name: templateForm.name, content: templateForm.content })
+  }
+  saveTemplates()
+  showTemplateDialog.value = false
+  ElMessage.success('保存成功')
+}
+
+function deleteReplyTemplate(id) {
+  replyTemplates.value = replyTemplates.value.filter(x => x.id !== id)
+  saveTemplates()
+  ElMessage.success('删除成功')
+}
+
+async function quickReply(row, text, type) {
+  if (!shopId.value) { ElMessage.warning('请先选择店铺'); return }
+  row._quickReplying = true
+  try {
+    const endpoint = type === 'feedback' ? '/api/customer-service/feedbacks/reply' : '/api/customer-service/questions/reply'
+    await api.post(endpoint, { shop_id: shopId.value, id: row.id, text })
+    ElMessage.success('回复成功')
+    fetchData()
+  } catch (e) {
+    ElMessage.error('回复失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    row._quickReplying = false
+  }
+}
 
 const shops = ref([])
 const shopId = ref(null)
@@ -415,5 +526,8 @@ async function submitReply() {
   }
 }
 
-onMounted(fetchShops)
+onMounted(() => {
+  fetchShops()
+  loadTemplates()
+})
 </script>

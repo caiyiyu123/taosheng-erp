@@ -803,7 +803,7 @@ def reply_feedback(api_token: str, feedback_id: str, text: str) -> dict:
             resp = client.post(url, headers=_headers(api_token), json={
                 "id": feedback_id, "text": text,
             })
-            if resp.status_code == 200:
+            if 200 <= resp.status_code < 300:
                 return {"ok": True}
             return {"ok": False, "error": resp.text, "status": resp.status_code}
     except Exception as e:
@@ -836,7 +836,7 @@ def reply_question(api_token: str, question_id: str, text: str) -> dict:
             resp = client.post(url, headers=_headers(api_token), json={
                 "id": question_id, "text": text, "state": "wbRu",
             })
-            if resp.status_code == 200:
+            if 200 <= resp.status_code < 300:
                 return {"ok": True}
             return {"ok": False, "error": resp.text, "status": resp.status_code}
     except Exception as e:
