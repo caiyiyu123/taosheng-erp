@@ -7,6 +7,7 @@ RoleType = Literal["admin", "operator"]
 
 class UserCreate(BaseModel):
     username: str
+    display_name: str = ""
     password: str
     role: RoleType = "operator"
     shop_ids: list[int] = []
@@ -15,6 +16,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
+    display_name: Optional[str] = None
     password: Optional[str] = None
     role: Optional[RoleType] = None
     is_active: Optional[bool] = None
@@ -25,6 +27,7 @@ class UserUpdate(BaseModel):
 class UserOut(BaseModel):
     id: int
     username: str
+    display_name: str = ""
     role: str
     is_active: bool
     created_at: datetime

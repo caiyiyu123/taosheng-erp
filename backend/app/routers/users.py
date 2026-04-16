@@ -16,6 +16,7 @@ def _user_to_out(user: User) -> dict:
     return {
         "id": user.id,
         "username": user.username,
+        "display_name": user.display_name or "",
         "role": user.role,
         "is_active": user.is_active,
         "created_at": user.created_at,
@@ -45,6 +46,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db), _=Depends(requi
         raise HTTPException(status_code=400, detail="Username already exists")
     user = User(
         username=data.username,
+        display_name=data.display_name or "",
         password_hash=hash_password(data.password),
         role=data.role,
         permissions=",".join(data.permissions) if data.permissions else "",
@@ -64,6 +66,8 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db), _
         raise HTTPException(status_code=404, detail="User not found")
     if data.username is not None:
         user.username = data.username
+    if data.display_name is not None:
+        user.display_name = data.display_name
     if data.password is not None:
         user.password_hash = hash_password(data.password)
     if data.role is not None:

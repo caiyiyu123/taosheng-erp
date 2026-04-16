@@ -8,6 +8,7 @@
     </template>
     <el-table :data="users" stripe>
       <el-table-column prop="username" label="用户名" min-width="100" />
+      <el-table-column prop="display_name" label="姓名" min-width="100" />
       <el-table-column prop="role" label="角色" width="90">
         <template #default="{ row }">
           <el-tag :type="row.role === 'admin' ? 'danger' : 'warning'">{{ roleLabel(row.role) }}</el-tag>
@@ -60,6 +61,7 @@
   <el-dialog v-model="showDialog" :title="form.id ? '编辑用户' : '添加用户'" width="560px">
     <el-form :model="form" label-width="100px">
       <el-form-item label="用户名"><el-input v-model="form.username" /></el-form-item>
+      <el-form-item label="姓名"><el-input v-model="form.display_name" placeholder="真实姓名" /></el-form-item>
       <el-form-item label="密码"><el-input v-model="form.password" type="password" :placeholder="form.id ? '留空不修改' : ''" /></el-form-item>
       <el-form-item label="角色">
         <el-select v-model="form.role" @change="onRoleChange">
@@ -100,7 +102,7 @@ import api from '../api'
 const users = ref([])
 const shops = ref([])
 const showDialog = ref(false)
-const defaultForm = { id: null, username: '', password: '', role: 'operator', shop_ids: [], permissions: [] }
+const defaultForm = { id: null, username: '', display_name: '', password: '', role: 'operator', shop_ids: [], permissions: [] }
 const form = reactive({ ...defaultForm })
 
 const ROLE_MAP = { admin: '管理员', operator: '运营' }
@@ -161,6 +163,7 @@ async function saveUser() {
         permissions: isAdmin ? [] : form.permissions,
       }
       if (form.username) payload.username = form.username
+      payload.display_name = form.display_name || ''
       if (form.password) payload.password = form.password
       await api.put(`/api/users/${form.id}`, payload)
     } else {

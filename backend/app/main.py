@@ -12,6 +12,19 @@ from app.services.scheduler import start_scheduler, stop_scheduler
 
 Base.metadata.create_all(bind=engine)
 
+# Auto-migrate: add missing columns to existing tables
+try:
+    from sqlalchemy import text, inspect as sa_inspect
+    with engine.connect() as conn:
+        inspector = sa_inspect(engine)
+        user_cols = [c["name"] for c in inspector.get_columns("users")]
+        if "display_name" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN display_name VARCHAR(50) DEFAULT ''"))
+            conn.commit()
+            print("[Migration] Added display_name column to users table")
+except Exception as e:
+    print(f"[Migration] Skipped: {e}")
+
 # Create default admin user if no users exist
 try:
     from app.database import SessionLocal
