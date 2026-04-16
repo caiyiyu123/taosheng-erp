@@ -123,9 +123,14 @@
             <el-input-number v-model="row.quantity" :min="0" :precision="0" :controls="false" size="small" style="width: 80px" />
           </template>
         </el-table-column>
-        <el-table-column label="箱数" width="110" align="center">
+        <el-table-column label="装箱数" width="110" align="center">
           <template #default="{ row }">
             <el-input-number v-model="row.boxes" :min="0" :precision="0" :controls="false" size="small" style="width: 80px" />
+          </template>
+        </el-table-column>
+        <el-table-column label="箱数" width="80" align="center">
+          <template #default="{ row }">
+            <span>{{ row.boxes ? Math.ceil(row.quantity / row.boxes) : 0 }}</span>
           </template>
         </el-table-column>
         <el-table-column label="小计" width="120" align="right">
