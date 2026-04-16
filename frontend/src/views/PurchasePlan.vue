@@ -271,7 +271,7 @@ function onProductSelected(productId) {
     product_image: p.image,
     unit_price: p.purchase_price || 0,
     quantity: 0,
-    boxes: 0,
+    boxes: p.packing_qty || 0,
   })
   selectedProduct.value = null
 }
