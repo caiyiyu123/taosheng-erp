@@ -40,6 +40,10 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>评价客服</span>
         </el-menu-item>
+        <el-menu-item v-if="hasPerm('commission_shipping')" index="/commission-shipping">
+          <el-icon><PriceTag /></el-icon>
+          <span>佣金运费</span>
+        </el-menu-item>
         <el-menu-item v-if="hasPerm('inventory')" index="/inventory">
           <el-icon><List /></el-icon>
           <span>库存管理</span>
@@ -80,7 +84,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { DataAnalysis, Box, ShoppingCart, Goods, TrendCharts, Money, List, Shop, User, ChatDotRound } from '@element-plus/icons-vue'
+import { DataAnalysis, Box, ShoppingCart, Goods, TrendCharts, Money, List, Shop, User, ChatDotRound, PriceTag } from '@element-plus/icons-vue'
 import { APP_TITLE, APP_LOGO } from '../brand'
 
 const appTitle = APP_TITLE

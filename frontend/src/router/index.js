@@ -17,6 +17,7 @@ const routes = [
       { path: 'ads/:id', name: 'AdDetail', meta: { module: 'ads' }, component: () => import('../views/AdDetail.vue') },
       { path: 'finance', name: 'Finance', meta: { module: 'finance' }, component: () => import('../views/Finance.vue') },
       { path: 'customer-service', name: 'CustomerService', meta: { module: 'customer_service' }, component: () => import('../views/CustomerService.vue') },
+      { path: 'commission-shipping', name: 'CommissionShipping', meta: { module: 'commission_shipping' }, component: () => import('../views/CommissionShipping.vue') },
       { path: 'inventory', name: 'Inventory', meta: { module: 'inventory' }, component: () => import('../views/Inventory.vue') },
       { path: 'shops', name: 'Shops', meta: { module: 'shops' }, component: () => import('../views/Shops.vue') },
       { path: 'shops/:id/sku-mappings', name: 'SkuMappings', meta: { module: 'shops' }, component: () => import('../views/SkuMappings.vue') },
