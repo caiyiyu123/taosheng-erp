@@ -26,7 +26,7 @@
       <el-table-column label="密度" align="center" min-width="80">
         <template #default="{ row }">{{ calcDensity(row) }}</template>
       </el-table-column>
-      <el-table-column label="装箱数" align="center" min-width="80">
+      <el-table-column label="装箱数" align="center" min-width="90">
         <template #default="{ row }">
           <el-input-number
             v-model="row.packing_qty"
@@ -34,7 +34,7 @@
             :precision="0"
             :controls="false"
             size="small"
-            style="width: 60px; font-size: 12px"
+            style="width: 70px; font-size: 12px"
             @change="savePackingQty(row)"
           />
         </template>
@@ -81,11 +81,12 @@
       </el-form-item>
       <el-form-item label="商品SKU"><el-input v-model="form.sku" /></el-form-item>
       <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
-      <el-form-item label="采购价"><el-input-number v-model="form.purchase_price" :min="0" :precision="1" /></el-form-item>
-      <el-form-item label="重量(kg)"><el-input-number v-model="form.weight" :min="0" :precision="2" :step="0.01" /></el-form-item>
-      <el-form-item label="长(cm)"><el-input-number v-model="form.length" :min="0" /></el-form-item>
-      <el-form-item label="宽(cm)"><el-input-number v-model="form.width" :min="0" /></el-form-item>
-      <el-form-item label="高(cm)"><el-input-number v-model="form.height" :min="0" /></el-form-item>
+      <el-form-item label="采购价"><el-input-number v-model="form.purchase_price" :min="0" :precision="1" :controls="false" /></el-form-item>
+      <el-form-item label="重量(kg)"><el-input-number v-model="form.weight" :min="0" :precision="2" :step="0.01" :controls="false" /></el-form-item>
+      <el-form-item label="长(cm)"><el-input-number v-model="form.length" :min="0" :controls="false" /></el-form-item>
+      <el-form-item label="宽(cm)"><el-input-number v-model="form.width" :min="0" :controls="false" /></el-form-item>
+      <el-form-item label="高(cm)"><el-input-number v-model="form.height" :min="0" :controls="false" /></el-form-item>
+      <el-form-item label="装箱数"><el-input-number v-model="form.packing_qty" :min="0" :precision="0" :controls="false" /></el-form-item>
       <el-form-item label="商品图片">
         <ImageUploader ref="imgUploaderRef" :model-value="imagePreview" @file-change="onImageFile" @remove="onImageRemove" />
       </el-form-item>
@@ -156,7 +157,7 @@ async function saveActualShipping(row) {
 }
 
 const showDialog = ref(false)
-const defaultForm = { id: null, developer: '', sku: '', name: '', purchase_price: 0, weight: 0, length: 0, width: 0, height: 0, actual_shipping_cost: 0 }
+const defaultForm = { id: null, developer: '', sku: '', name: '', purchase_price: 0, weight: 0, length: 0, width: 0, height: 0, packing_qty: 0, actual_shipping_cost: 0 }
 const form = reactive({ ...defaultForm })
 const pendingImage = ref(null)
 const imagePreview = ref('')
@@ -165,7 +166,7 @@ const imageRemoved = ref(false)
 
 async function fetchUserNames() {
   try {
-    const { data } = await api.get('/api/users')
+    const { data } = await api.get('/api/users/names')
     userNames.value = data.map(u => u.display_name || u.username).filter(Boolean)
   } catch { /* ignore */ }
 }
@@ -214,7 +215,7 @@ async function uploadImage(productId) {
 
 async function saveProduct() {
   try {
-    const payload = { developer: form.developer, sku: form.sku, name: form.name, purchase_price: form.purchase_price, weight: form.weight, length: form.length, width: form.width, height: form.height, actual_shipping_cost: form.actual_shipping_cost }
+    const payload = { developer: form.developer, sku: form.sku, name: form.name, purchase_price: form.purchase_price, weight: form.weight, length: form.length, width: form.width, height: form.height, packing_qty: form.packing_qty, actual_shipping_cost: form.actual_shipping_cost }
     let productId = form.id
     if (form.id) {
       await api.put(`/api/products/${form.id}`, payload)
@@ -263,5 +264,9 @@ onMounted(() => {
 }
 :deep(.el-input-number .el-input__inner) {
   font-size: 12px;
+}
+:deep(.el-table .cell) {
+  overflow: visible;
+  text-overflow: clip;
 }
 </style>

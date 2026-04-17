@@ -6,9 +6,16 @@ from app.models.user import User
 from app.models.shop import Shop
 from app.schemas.user import UserCreate, UserUpdate, UserOut
 from app.utils.security import hash_password
-from app.utils.deps import require_role
+from app.utils.deps import require_role, get_current_user
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+
+@router.get("/names")
+def list_user_names(db: Session = Depends(get_db), _=Depends(get_current_user)):
+    """Return all user display names (or username fallback). Available to any authenticated user."""
+    users = db.query(User).all()
+    return [{"display_name": u.display_name, "username": u.username} for u in users]
 
 
 def _user_to_out(user: User) -> dict:

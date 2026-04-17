@@ -248,7 +248,7 @@ async function fetchPlans() {
 
 async function fetchUserNames() {
   try {
-    const { data } = await api.get('/api/users')
+    const { data } = await api.get('/api/users/names')
     userNames.value = data.map(u => u.display_name || u.username).filter(Boolean)
   } catch { /* ignore */ }
 }
