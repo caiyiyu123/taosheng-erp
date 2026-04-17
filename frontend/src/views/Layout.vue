@@ -10,55 +10,78 @@
         background-color="transparent"
         text-color="#94a3b8"
         active-text-color="#fbbf24"
-        router
       >
         <el-menu-item v-if="hasPerm('dashboard')" index="/">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>数据看板</span>
+          <router-link to="/" class="ts-nav-link">
+            <el-icon><DataAnalysis /></el-icon>
+            <span>数据看板</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('orders')" index="/orders">
-          <el-icon><Box /></el-icon>
-          <span>订单管理</span>
+          <router-link to="/orders" class="ts-nav-link">
+            <el-icon><Box /></el-icon>
+            <span>订单管理</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('products')" index="/shop-products">
-          <el-icon><ShoppingCart /></el-icon>
-          <span>产品管理</span>
+          <router-link to="/shop-products" class="ts-nav-link">
+            <el-icon><ShoppingCart /></el-icon>
+            <span>产品管理</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('products')" index="/products">
-          <el-icon><Goods /></el-icon>
-          <span>商品管理</span>
+          <router-link to="/products" class="ts-nav-link">
+            <el-icon><Goods /></el-icon>
+            <span>商品管理</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('purchase_plan')" index="/purchase-plan">
-          <el-icon><DocumentChecked /></el-icon>
-          <span>采购计划</span>
+          <router-link to="/purchase-plan" class="ts-nav-link">
+            <el-icon><DocumentChecked /></el-icon>
+            <span>采购计划</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('ads')" index="/ads">
-          <el-icon><TrendCharts /></el-icon>
-          <span>推广数据</span>
+          <router-link to="/ads" class="ts-nav-link">
+            <el-icon><TrendCharts /></el-icon>
+            <span>推广数据</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('finance')" index="/finance">
-          <el-icon><Money /></el-icon>
-          <span>财务统计</span>
+          <router-link to="/finance" class="ts-nav-link">
+            <el-icon><Money /></el-icon>
+            <span>财务统计</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('customer_service')" index="/customer-service">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>评价客服</span>
+          <router-link to="/customer-service" class="ts-nav-link">
+            <el-icon><ChatDotRound /></el-icon>
+            <span>评价客服</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('commission_shipping')" index="/commission-shipping">
-          <el-icon><PriceTag /></el-icon>
-          <span>佣金运费</span>
+          <router-link to="/commission-shipping" class="ts-nav-link">
+            <el-icon><PriceTag /></el-icon>
+            <span>佣金运费</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('inventory')" index="/inventory">
-          <el-icon><List /></el-icon>
-          <span>库存管理</span>
+          <router-link to="/inventory" class="ts-nav-link">
+            <el-icon><List /></el-icon>
+            <span>库存管理</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="hasPerm('shops')" index="/shops">
-          <el-icon><Shop /></el-icon>
-          <span>店铺管理</span>
+          <router-link to="/shops" class="ts-nav-link">
+            <el-icon><Shop /></el-icon>
+            <span>店铺管理</span>
+          </router-link>
         </el-menu-item>
         <el-menu-item v-if="isAdmin" index="/users">
-          <el-icon><User /></el-icon>
-          <span>用户管理</span>
+          <router-link to="/users" class="ts-nav-link">
+            <el-icon><User /></el-icon>
+            <span>用户管理</span>
+          </router-link>
         </el-menu-item>
       </el-menu>
       <div class="ts-sidebar-footer">
@@ -205,6 +228,23 @@ function handleLogout() {
   color: var(--ts-danger);
   border-color: rgba(220, 38, 38, 0.3);
   background: rgba(220, 38, 38, 0.06);
+}
+
+/* ---- Sidebar nav links (enable right-click open in new tab) ---- */
+.ts-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+:deep(.el-menu-item) {
+  padding: 0 !important;
+}
+.ts-nav-link {
+  padding: 0 20px;
 }
 
 /* ---- Main content (light bg) ---- */
