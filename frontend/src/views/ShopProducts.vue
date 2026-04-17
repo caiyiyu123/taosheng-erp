@@ -25,7 +25,14 @@
           <span v-else style="color: #ccc">无图</span>
         </template>
       </el-table-column>
+      <el-table-column prop="shop_name" label="店铺" min-width="120" />
       <el-table-column prop="vendor_code" label="SKU" min-width="130" />
+      <el-table-column label="关联SKU" min-width="120">
+        <template #default="{ row }">
+          <span v-if="row.mapped_sku">{{ row.mapped_sku }}</span>
+          <span v-else style="color: #ccc">未关联</span>
+        </template>
+      </el-table-column>
       <el-table-column label="产品标题" min-width="220">
         <template #default="{ row }">
           <a v-if="row.nm_id" :href="'https://www.wildberries.ru/catalog/' + row.nm_id + '/detail.aspx'" target="_blank" style="color: #409eff; text-decoration: none">

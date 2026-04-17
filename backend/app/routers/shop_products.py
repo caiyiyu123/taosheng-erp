@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db, SessionLocal
-from app.models.product import ShopProduct
+from app.models.product import ShopProduct, SkuMapping, Product
 from app.models.inventory import Inventory
 from app.models.order import Order, OrderItem
 from app.models.shop import Shop
@@ -45,27 +45,46 @@ def list_shop_products(
     if not items:
         return {"total": total, "items": []}
 
-    # Build stock lookup: FBS and FBW separately per vendor_code (case-insensitive)
-    vendor_codes = [p.vendor_code for p in items if p.vendor_code]
+    # Build stock lookup: FBS and FBW per (shop_id, vendor_code) — same SKU in different shops are separate records
     stock_map = {}
-    if vendor_codes:
-        vc_lower = [vc.lower() for vc in vendor_codes]
+    pairs = [(p.shop_id, p.vendor_code.lower()) for p in items if p.vendor_code]
+    if pairs:
+        shop_ids_in = list({s for s, _ in pairs})
+        vc_lower_in = list({vc for _, vc in pairs})
         stock_rows = db.query(
+            Inventory.shop_id,
             func.lower(Inventory.sku),
             func.sum(Inventory.stock_fbs),
             func.sum(Inventory.stock_fbw),
         ).filter(
-            func.lower(Inventory.sku).in_(vc_lower),
-        ).group_by(func.lower(Inventory.sku)).all()
+            Inventory.shop_id.in_(shop_ids_in),
+            func.lower(Inventory.sku).in_(vc_lower_in),
+        ).group_by(Inventory.shop_id, func.lower(Inventory.sku)).all()
         for row in stock_rows:
-            if row[0]:
-                stock_map[row[0]] = {"fbs": int(row[1] or 0), "fbw": int(row[2] or 0)}
+            if row[1]:
+                stock_map[(row[0], row[1])] = {"fbs": int(row[2] or 0), "fbw": int(row[3] or 0)}
 
-    # Get shop types for all relevant shops
+    # Build mapped SKU lookup: (shop_id, vendor_code) -> product.sku
+    mapped_sku_map = {}
+    if pairs:
+        mapping_rows = db.query(
+            SkuMapping.shop_id,
+            SkuMapping.shop_sku,
+            Product.sku,
+        ).join(Product, SkuMapping.product_id == Product.id).filter(
+            SkuMapping.shop_id.in_(shop_ids_in),
+            SkuMapping.shop_sku.in_([vc for _, vc in pairs] + [p.vendor_code for p in items if p.vendor_code]),
+        ).all()
+        for row in mapping_rows:
+            mapped_sku_map[(row[0], row[1].lower() if row[1] else "")] = row[2]
+
+    # Get shop info (type, name) for all relevant shops
     shop_ids = list({p.shop_id for p in items})
     shop_types = {}
-    for s in db.query(Shop.id, Shop.type).filter(Shop.id.in_(shop_ids)).all():
+    shop_names = {}
+    for s in db.query(Shop.id, Shop.type, Shop.name).filter(Shop.id.in_(shop_ids)).all():
         shop_types[s.id] = s.type
+        shop_names[s.id] = s.name
 
     # Get exchange rate
     rate_setting = db.query(SystemSetting).filter(SystemSetting.key == "exchange_rate_cny_rub").first()
@@ -115,6 +134,7 @@ def list_shop_products(
         result.append({
             "id": p.id,
             "shop_id": p.shop_id,
+            "shop_name": shop_names.get(p.shop_id, ""),
             "nm_id": p.nm_id,
             "title": p.title,
             "vendor_code": p.vendor_code,
@@ -124,8 +144,9 @@ def list_shop_products(
             "discount": p.discount,
             "rating": p.rating,
             "feedbacks_count": p.feedbacks_count,
-            "stock_fbs": stock_map.get(p.vendor_code.lower(), {"fbs": 0, "fbw": 0})["fbs"] if p.vendor_code else 0,
-            "stock_fbw": stock_map.get(p.vendor_code.lower(), {"fbs": 0, "fbw": 0})["fbw"] if p.vendor_code else 0,
+            "mapped_sku": mapped_sku_map.get((p.shop_id, p.vendor_code.lower()), "") if p.vendor_code else "",
+            "stock_fbs": stock_map.get((p.shop_id, p.vendor_code.lower()), {"fbs": 0, "fbw": 0})["fbs"] if p.vendor_code else 0,
+            "stock_fbw": stock_map.get((p.shop_id, p.vendor_code.lower()), {"fbs": 0, "fbw": 0})["fbw"] if p.vendor_code else 0,
             "updated_at": p.updated_at.isoformat() if p.updated_at else None,
         })
 
