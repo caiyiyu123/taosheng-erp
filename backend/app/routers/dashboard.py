@@ -1,11 +1,12 @@
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db
 from app.models.order import Order, OrderItem
 from app.models.inventory import Inventory
+from app.models.shop import Shop
 from app.utils.deps import get_accessible_shop_ids, require_module
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -109,9 +110,6 @@ def dashboard_stats(db: Session = Depends(get_db), accessible_shops: list[int] |
     }
 
 
-from app.models.shop import Shop
-
-
 @router.get("/shops")
 def dashboard_shops(
     db: Session = Depends(get_db),
@@ -158,10 +156,6 @@ def dashboard_shops(
             "last_30d_sales": float(agg.last_30d_sales) if agg else 0.0,
         })
     return {"shops": result}
-
-
-from fastapi import HTTPException
-from app.models.order import OrderItem
 
 
 @router.get("/shops/{shop_id}/products")

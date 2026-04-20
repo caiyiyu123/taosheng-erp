@@ -100,6 +100,9 @@ def test_shop_products_ranking(client, db):
     p = data["products"][0]
     assert p["nm_id"] == "111"
     assert p["product_name"] == "商品甲"
+    assert p["today_orders"] == 2
+    assert p["yesterday_orders"] == 0
+    assert p["last_7d_orders"] == 2
     assert p["last_30d_orders"] == 2
 
 
