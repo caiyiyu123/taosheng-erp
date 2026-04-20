@@ -214,3 +214,23 @@ def test_recalc_profit_refreshes_records(client, db):
     assert rec.has_sku_mapping is True
     assert rec.purchase_cost == 30.0
     assert rec.net_profit == 70.0
+
+
+def test_weekly_finance_sync_function_exists():
+    """函数存在且签名正确（scheduler 注册处会引用）。"""
+    from app.services.scheduler import weekly_finance_sync
+    import inspect
+    sig = inspect.signature(weekly_finance_sync)
+    assert len(sig.parameters) == 0  # 无参数，cron 直接调
+
+
+def test_start_scheduler_registers_weekly_job():
+    """start_scheduler 后，scheduler 里有 weekly_finance_sync job。"""
+    from app.services.scheduler import scheduler
+    # main.py 启动时已调 start_scheduler，或者这里主动调
+    from app.services.scheduler import start_scheduler
+    # 已启动过就跳过
+    if not scheduler.running:
+        start_scheduler()
+    job = scheduler.get_job("weekly_finance_sync")
+    assert job is not None
