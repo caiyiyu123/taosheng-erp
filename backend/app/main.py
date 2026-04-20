@@ -10,7 +10,9 @@ import app.models  # noqa: F401
 from app.routers import auth, users, shops, products, sku_mappings, orders, inventory, finance, dashboard, ads, shop_products, customer_service, commission_shipping, purchase_plan, ai_keys
 from app.services.scheduler import start_scheduler, stop_scheduler
 
-Base.metadata.create_all(bind=engine)
+# Skip DB creation in test mode (conftest will handle it)
+if not os.getenv("TEST_MODE"):
+    Base.metadata.create_all(bind=engine)
 
 # Auto-migrate: add missing columns to existing tables
 try:

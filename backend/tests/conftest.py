@@ -2,6 +2,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+import os
+
+# Set test mode before importing app to prevent automatic DB creation
+os.environ["TEST_MODE"] = "1"
 
 from app.database import Base, get_db
 from app.main import app
