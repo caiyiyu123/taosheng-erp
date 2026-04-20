@@ -158,8 +158,10 @@ def test_product_daily_orders_fills_missing_dates(client, db):
     data = r.json()
     assert len(data["daily"]) == 7
     assert data["daily"][-1]["date"] == today_msk.isoformat()
-    assert data["daily"][-1]["orders"] >= 1
-    assert data["daily"][0]["orders"] == 0
+    assert data["daily"][-1]["orders"] == 1
+    # All 6 days before today must be gap-filled with zeros
+    for day in data["daily"][:-1]:
+        assert day["orders"] == 0, f"Expected 0 orders on {day['date']}, got {day['orders']}"
 
 
 def test_product_daily_forbidden_for_other_shop(client, db):
