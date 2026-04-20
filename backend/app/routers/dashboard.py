@@ -107,3 +107,54 @@ def dashboard_stats(db: Session = Depends(get_db), accessible_shops: list[int] |
         "days30_sales": days30_sales,
         "daily_trend": daily_trend,
     }
+
+
+from app.models.shop import Shop
+
+
+@router.get("/shops")
+def dashboard_shops(
+    db: Session = Depends(get_db),
+    accessible_shops: list[int] | None = Depends(get_accessible_shop_ids),
+    _=Depends(require_module("dashboard")),
+):
+    """返回当前用户可访问的店铺方块数据：今日订单/销售额、近30天销售额。"""
+    from sqlalchemy import cast, Date, text, case
+    from app.config import DATABASE_URL
+
+    now_msk = datetime.now(_MSK_TZ)
+    today = now_msk.date()
+    d30_start = today - timedelta(days=29)
+
+    if DATABASE_URL.startswith("postgresql"):
+        order_date = cast(Order.created_at + text("interval '3 hours'"), Date)
+    else:
+        order_date = func.date(Order.created_at, '+3 hours')
+
+    agg_q = db.query(
+        Order.shop_id,
+        func.sum(case((order_date == today, 1), else_=0)).label("today_orders"),
+        func.sum(case((order_date == today, Order.price_rub), else_=0)).label("today_sales"),
+        func.sum(case((order_date >= d30_start, Order.price_rub), else_=0)).label("last_30d_sales"),
+    ).filter(order_date >= d30_start)
+    if accessible_shops is not None:
+        agg_q = agg_q.filter(Order.shop_id.in_(accessible_shops))
+    agg_rows = agg_q.group_by(Order.shop_id).all()
+    agg_map = {r.shop_id: r for r in agg_rows}
+
+    shop_q = db.query(Shop)
+    if accessible_shops is not None:
+        shop_q = shop_q.filter(Shop.id.in_(accessible_shops))
+    shops = shop_q.order_by(Shop.id).all()
+
+    result = []
+    for s in shops:
+        agg = agg_map.get(s.id)
+        result.append({
+            "id": s.id,
+            "name": s.name,
+            "today_orders": int(agg.today_orders) if agg else 0,
+            "today_sales": float(agg.today_sales) if agg else 0.0,
+            "last_30d_sales": float(agg.last_30d_sales) if agg else 0.0,
+        })
+    return {"shops": result}
