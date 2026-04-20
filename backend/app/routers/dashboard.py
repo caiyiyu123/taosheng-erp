@@ -1,5 +1,5 @@
-from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timezone, timedelta, date as _date
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -223,3 +223,46 @@ def shop_products_ranking(
         "shop_name": shop.name,
         "products": products,
     }
+
+
+@router.get("/shops/{shop_id}/products/{nm_id}/daily")
+def product_daily_orders(
+    shop_id: int,
+    nm_id: str,
+    end_date: _date = Query(..., description="结束日期（含），Moscow 日期 YYYY-MM-DD"),
+    days: int = Query(7, ge=1, le=31),
+    db: Session = Depends(get_db),
+    accessible_shops: list[int] | None = Depends(get_accessible_shop_ids),
+    _=Depends(require_module("dashboard")),
+):
+    """返回商品在 [end_date - days + 1, end_date] 区间每日订单数（补零）。"""
+    from sqlalchemy import cast, Date, text
+    from app.config import DATABASE_URL
+
+    if accessible_shops is not None and shop_id not in accessible_shops:
+        raise HTTPException(status_code=403, detail="无权访问该店铺")
+
+    start_date = end_date - timedelta(days=days - 1)
+
+    if DATABASE_URL.startswith("postgresql"):
+        order_date = cast(Order.created_at + text("interval '3 hours'"), Date)
+    else:
+        order_date = func.date(Order.created_at, '+3 hours')
+
+    q = (
+        db.query(order_date.label("d"), func.count(OrderItem.id).label("orders"))
+        .join(Order, Order.id == OrderItem.order_id)
+        .filter(Order.shop_id == shop_id)
+        .filter(OrderItem.wb_product_id == nm_id)
+        .filter(order_date >= start_date)
+        .filter(order_date <= end_date)
+        .group_by(order_date)
+    )
+    rows = q.all()
+    daily_map = {str(r.d): int(r.orders) for r in rows}
+
+    daily = []
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        daily.append({"date": d.isoformat(), "orders": daily_map.get(d.isoformat(), 0)})
+    return {"daily": daily}

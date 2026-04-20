@@ -124,3 +124,62 @@ def test_shop_products_forbidden_for_other_shop(client, db):
     tok = resp.json()["access_token"]
     r = client.get(f"/api/dashboard/shops/{shop_b.id}/products", headers={"Authorization": f"Bearer {tok}"})
     assert r.status_code == 403
+
+
+def test_product_daily_orders_fills_missing_dates(client, db):
+    from datetime import datetime, timezone, timedelta
+    from app.models.shop import Shop
+    from app.models.order import Order, OrderItem
+    from app.models.user import User
+    from app.utils.security import hash_password, encrypt_token
+
+    user = User(username="admin", password_hash=hash_password("admin123"), role="admin", is_active=True)
+    shop = Shop(name="SD", type="local", api_token=encrypt_token("t"), is_active=True)
+    db.add_all([user, shop])
+    db.commit()
+
+    msk = timezone(timedelta(hours=3))
+    today_msk = datetime.now(msk).date()
+    now_utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    order = Order(
+        wb_order_id="OD1", shop_id=shop.id, order_type="FBS", status="pending",
+        price_rub=50.0, created_at=now_utc_naive,
+    )
+    db.add(order)
+    db.commit()
+    db.add(OrderItem(order_id=order.id, wb_product_id="777", product_name="商品日", sku="K", quantity=1, price=50.0))
+    db.commit()
+
+    resp = client.post("/api/auth/login", data={"username": "admin", "password": "admin123"})
+    tok = resp.json()["access_token"]
+    url = f"/api/dashboard/shops/{shop.id}/products/777/daily?end_date={today_msk.isoformat()}&days=7"
+    r = client.get(url, headers={"Authorization": f"Bearer {tok}"})
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data["daily"]) == 7
+    assert data["daily"][-1]["date"] == today_msk.isoformat()
+    assert data["daily"][-1]["orders"] >= 1
+    assert data["daily"][0]["orders"] == 0
+
+
+def test_product_daily_forbidden_for_other_shop(client, db):
+    from app.models.shop import Shop
+    from app.models.user import User
+    from app.utils.security import hash_password, encrypt_token
+
+    shop_a = Shop(name="A", type="local", api_token=encrypt_token("ta"), is_active=True)
+    shop_b = Shop(name="B", type="local", api_token=encrypt_token("tb"), is_active=True)
+    db.add_all([shop_a, shop_b])
+    db.commit()
+    user = User(username="op2", password_hash=hash_password("x"), role="operator", is_active=True)
+    user.shops = [shop_a]
+    db.add(user)
+    db.commit()
+
+    resp = client.post("/api/auth/login", data={"username": "op2", "password": "x"})
+    tok = resp.json()["access_token"]
+    r = client.get(
+        f"/api/dashboard/shops/{shop_b.id}/products/123/daily?end_date=2026-04-20&days=7",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert r.status_code == 403
