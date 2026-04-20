@@ -9,6 +9,7 @@ from app.models.shop import Shop
 from app.models.product import ShopProduct
 from app.utils.deps import get_current_user, get_accessible_shop_ids, require_module
 from app.utils.security import decrypt_token
+from app.services.translate import translate_ru_to_zh
 from app.services.wb_api import (
     fetch_feedbacks, reply_feedback,
     fetch_questions, reply_question,
@@ -71,21 +72,7 @@ def translate_text(
     _=Depends(require_module("customer_service")),
 ):
     """Translate a single text from Russian to Chinese."""
-    if not body.text.strip():
-        return {"translated": ""}
-    try:
-        resp = httpx.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "ru", "tl": "zh-CN", "dt": "t", "q": body.text},
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            translated = "".join(part[0] for part in data[0] if part[0])
-            return {"translated": translated}
-    except Exception as e:
-        print(f"[Translate] Error: {e}")
-    return {"translated": ""}
+    return {"translated": translate_ru_to_zh(body.text)}
 
 
 class ReplyBody(BaseModel):

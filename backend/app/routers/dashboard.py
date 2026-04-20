@@ -1,12 +1,15 @@
 from datetime import datetime, timezone, timedelta, date as _date
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, and_, cast, String
 
 from app.database import get_db
 from app.models.order import Order, OrderItem
 from app.models.inventory import Inventory
 from app.models.shop import Shop
+from app.models.product import ShopProduct
+from app.services.translate import translate_batch
 from app.utils.deps import get_accessible_shop_ids, require_module
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -133,6 +136,7 @@ def dashboard_shops(
         Order.shop_id,
         func.sum(case((order_date == today, 1), else_=0)).label("today_orders"),
         func.sum(case((order_date == today, Order.price_rub), else_=0)).label("today_sales"),
+        func.sum(case((order_date >= d30_start, 1), else_=0)).label("last_30d_orders"),
         func.sum(case((order_date >= d30_start, Order.price_rub), else_=0)).label("last_30d_sales"),
     ).filter(order_date >= d30_start)
     if accessible_shops is not None:
@@ -153,6 +157,7 @@ def dashboard_shops(
             "name": s.name,
             "today_orders": int(agg.today_orders) if agg else 0,
             "today_sales": float(agg.today_sales) if agg else 0.0,
+            "last_30d_orders": int(agg.last_30d_orders) if agg else 0,
             "last_30d_sales": float(agg.last_30d_sales) if agg else 0.0,
         })
     return {"shops": result}
@@ -191,12 +196,19 @@ def shop_products_ranking(
         db.query(
             OrderItem.wb_product_id.label("nm_id"),
             func.max(OrderItem.product_name).label("product_name"),
+            func.max(OrderItem.sku).label("order_sku"),
+            func.max(ShopProduct.vendor_code).label("vendor_code"),
+            func.max(OrderItem.image_url).label("image_url"),
             func.sum(case((order_date == today, 1), else_=0)).label("today_orders"),
             func.sum(case((order_date == yesterday, 1), else_=0)).label("yesterday_orders"),
             func.sum(case((order_date >= d7_start, 1), else_=0)).label("last_7d_orders"),
             func.count(OrderItem.id).label("last_30d_orders"),
         )
         .join(Order, Order.id == OrderItem.order_id)
+        .outerjoin(ShopProduct, and_(
+            ShopProduct.shop_id == shop_id,
+            cast(ShopProduct.nm_id, String) == OrderItem.wb_product_id,
+        ))
         .filter(Order.shop_id == shop_id)
         .filter(order_date >= d30_start)
         .filter(OrderItem.wb_product_id.isnot(None))
@@ -210,6 +222,8 @@ def shop_products_ranking(
         {
             "nm_id": r.nm_id,
             "product_name": r.product_name or "",
+            "sku": r.vendor_code or r.order_sku or "",
+            "image_url": r.image_url or "",
             "today_orders": int(r.today_orders),
             "yesterday_orders": int(r.yesterday_orders),
             "last_7d_orders": int(r.last_7d_orders),
@@ -266,3 +280,16 @@ def product_daily_orders(
         d = start_date + timedelta(days=i)
         daily.append({"date": d.isoformat(), "orders": daily_map.get(d.isoformat(), 0)})
     return {"daily": daily}
+
+
+class TranslateBatchBody(BaseModel):
+    texts: list[str]
+
+
+@router.post("/translate-batch")
+def dashboard_translate_batch(
+    body: TranslateBatchBody,
+    _=Depends(require_module("dashboard")),
+):
+    """批量把俄文产品名翻译成中文（带进程内缓存）。"""
+    return {"translations": translate_batch(body.texts)}

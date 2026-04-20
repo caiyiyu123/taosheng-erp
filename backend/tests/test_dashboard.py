@@ -48,6 +48,7 @@ def test_dashboard_shops_returns_cards(client, db):
     assert card["id"] > 0
     assert card["today_orders"] == 1
     assert card["today_sales"] == 2350.0
+    assert card["last_30d_orders"] == 1
     assert card["last_30d_sales"] == 2350.0
 
 
@@ -65,6 +66,7 @@ def test_dashboard_shops_includes_shops_without_orders(client, db):
     empty = next(s for s in resp.json()["shops"] if s["name"] == "空店铺")
     assert empty["today_orders"] == 0
     assert empty["today_sales"] == 0
+    assert empty["last_30d_orders"] == 0
     assert empty["last_30d_sales"] == 0
 
 
@@ -84,8 +86,8 @@ def test_shop_products_ranking(client, db):
     db.add_all([order1, order2])
     db.commit()
     db.add_all([
-        OrderItem(order_id=order1.id, wb_product_id="111", product_name="商品甲", sku="SKU1", quantity=1, price=100.0),
-        OrderItem(order_id=order2.id, wb_product_id="111", product_name="商品甲", sku="SKU1", quantity=1, price=200.0),
+        OrderItem(order_id=order1.id, wb_product_id="111", product_name="商品甲", sku="SKU1", image_url="http://img/1.jpg", quantity=1, price=100.0),
+        OrderItem(order_id=order2.id, wb_product_id="111", product_name="商品甲", sku="SKU1", image_url="http://img/1.jpg", quantity=1, price=200.0),
     ])
     db.commit()
 
@@ -100,6 +102,8 @@ def test_shop_products_ranking(client, db):
     p = data["products"][0]
     assert p["nm_id"] == "111"
     assert p["product_name"] == "商品甲"
+    assert p["sku"] == "SKU1"
+    assert p["image_url"] == "http://img/1.jpg"
     assert p["today_orders"] == 2
     assert p["yesterday_orders"] == 0
     assert p["last_7d_orders"] == 2
