@@ -158,3 +158,74 @@ def dashboard_shops(
             "last_30d_sales": float(agg.last_30d_sales) if agg else 0.0,
         })
     return {"shops": result}
+
+
+from fastapi import HTTPException
+from app.models.order import OrderItem
+
+
+@router.get("/shops/{shop_id}/products")
+def shop_products_ranking(
+    shop_id: int,
+    db: Session = Depends(get_db),
+    accessible_shops: list[int] | None = Depends(get_accessible_shop_ids),
+    _=Depends(require_module("dashboard")),
+):
+    """返回指定店铺商品销量排行（今日/昨日/近7天/近30天 订单数）。"""
+    from sqlalchemy import cast, Date, text, case
+    from app.config import DATABASE_URL
+
+    if accessible_shops is not None and shop_id not in accessible_shops:
+        raise HTTPException(status_code=403, detail="无权访问该店铺")
+
+    shop = db.query(Shop).filter(Shop.id == shop_id).first()
+    if shop is None:
+        raise HTTPException(status_code=404, detail="店铺不存在")
+
+    now_msk = datetime.now(_MSK_TZ)
+    today = now_msk.date()
+    yesterday = today - timedelta(days=1)
+    d7_start = today - timedelta(days=6)
+    d30_start = today - timedelta(days=29)
+
+    if DATABASE_URL.startswith("postgresql"):
+        order_date = cast(Order.created_at + text("interval '3 hours'"), Date)
+    else:
+        order_date = func.date(Order.created_at, '+3 hours')
+
+    q = (
+        db.query(
+            OrderItem.wb_product_id.label("nm_id"),
+            func.max(OrderItem.product_name).label("product_name"),
+            func.sum(case((order_date == today, 1), else_=0)).label("today_orders"),
+            func.sum(case((order_date == yesterday, 1), else_=0)).label("yesterday_orders"),
+            func.sum(case((order_date >= d7_start, 1), else_=0)).label("last_7d_orders"),
+            func.count(OrderItem.id).label("last_30d_orders"),
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .filter(Order.shop_id == shop_id)
+        .filter(order_date >= d30_start)
+        .filter(OrderItem.wb_product_id.isnot(None))
+        .filter(OrderItem.wb_product_id != "")
+        .group_by(OrderItem.wb_product_id)
+        .order_by(text("today_orders DESC"))
+    )
+    rows = q.all()
+
+    products = [
+        {
+            "nm_id": r.nm_id,
+            "product_name": r.product_name or "",
+            "today_orders": int(r.today_orders),
+            "yesterday_orders": int(r.yesterday_orders),
+            "last_7d_orders": int(r.last_7d_orders),
+            "last_30d_orders": int(r.last_30d_orders),
+        }
+        for r in rows
+    ]
+
+    return {
+        "shop_id": shop.id,
+        "shop_name": shop.name,
+        "products": products,
+    }
