@@ -172,3 +172,41 @@ def test_merge_accumulates_fees_across_rows():
     assert len(merged) == 1
     assert merged[0]["delivery_fee"] == 15
     assert merged[0]["fine"] == 20
+
+
+def test_extract_other_fees_filters_no_srid():
+    """没有 srid 的行进入 other_fees，有 srid 的行忽略。"""
+    from app.services.finance_sync import extract_other_fees
+    from datetime import date
+
+    rows = [
+        {"srid": "S1", "supplier_oper_name": "Продажа", "ppvz_for_pay": 50, "sale_dt": "2026-04-13"},
+        {"srid": "", "supplier_oper_name": "Хранение", "storage_fee": 150.0,
+         "delivery_rub": 0, "penalty": 0, "deduction": 0, "ppvz_for_pay": 0,
+         "sale_dt": "2026-04-13", "rr_dt": "2026-04-14"},
+        {"srid": None, "supplier_oper_name": "Штраф", "penalty": 500.0,
+         "delivery_rub": 0, "storage_fee": 0, "deduction": 0, "ppvz_for_pay": 0,
+         "sale_dt": "2026-04-13"},
+    ]
+    fees = extract_other_fees(rows, shop_id=2, currency="RUB",
+                              period_start=date(2026, 4, 6), period_end=date(2026, 4, 12))
+    assert len(fees) == 2
+    storage = next(f for f in fees if f["fee_type"] == "storage")
+    assert storage["amount"] == 150.0
+    assert storage["currency"] == "RUB"
+    assert storage["raw_row"]["supplier_oper_name"] == "Хранение"
+    fine = next(f for f in fees if f["fee_type"] == "fine")
+    assert fine["amount"] == 500.0
+
+
+def test_extract_other_fees_amount_picks_first_nonzero():
+    """amount 从多个候选字段里选非零的第一个。"""
+    from app.services.finance_sync import extract_other_fees
+
+    rows = [
+        {"srid": "", "supplier_oper_name": "Удержания", "deduction": 33,
+         "penalty": 0, "storage_fee": 0, "delivery_rub": 0, "ppvz_for_pay": 0, "sale_dt": "2026-04-10"},
+    ]
+    fees = extract_other_fees(rows, shop_id=1, currency="CNY", period_start=None, period_end=None)
+    assert fees[0]["fee_type"] == "deduction"
+    assert fees[0]["amount"] == 33

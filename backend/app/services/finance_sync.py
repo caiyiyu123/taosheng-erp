@@ -114,3 +114,52 @@ def merge_rows_by_srid(
         rec["product_name"] = sale_row.get("brand_name") or sale_row.get("subject_name") or ""
         result.append(rec)
     return result
+
+
+FEE_TYPE_MAP = {
+    "Хранение": "storage",
+    "Штраф": "fine",
+    "Удержания": "deduction",
+    "Удержание": "deduction",
+    "Логистика": "logistics_adjust",
+}
+
+
+def _infer_fee_type(row: dict) -> str:
+    op = row.get("supplier_oper_name") or ""
+    for key, val in FEE_TYPE_MAP.items():
+        if key in op:
+            return val
+    return "other"
+
+
+def _fee_amount(row: dict) -> float:
+    for field in ("penalty", "storage_fee", "deduction", "delivery_rub", "ppvz_for_pay"):
+        v = _num(row.get(field))
+        if v:
+            return v
+    return 0.0
+
+
+def extract_other_fees(
+    rows: list[dict], *, shop_id: int, currency: str,
+    period_start: Optional[date], period_end: Optional[date],
+) -> list[dict]:
+    """Rows without srid → standalone fee records (one per row)."""
+    result: list[dict] = []
+    for r in rows:
+        srid = (r.get("srid") or "").strip() if r.get("srid") else ""
+        if srid:
+            continue
+        result.append({
+            "shop_id": shop_id,
+            "currency": currency,
+            "sale_date": _parse_date(r.get("sale_dt") or r.get("rr_dt")),
+            "report_period_start": period_start,
+            "report_period_end": period_end,
+            "fee_type": _infer_fee_type(r),
+            "fee_description": r.get("supplier_oper_name") or "",
+            "amount": _fee_amount(r),
+            "raw_row": r,
+        })
+    return result
